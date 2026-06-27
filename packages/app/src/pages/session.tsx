@@ -1740,6 +1740,81 @@ export default function Page() {
     )
   }
 
+  const sessionPanelContent = () => (
+    <>
+      {sessionSync() ?? ""}
+      <Show when={!isDesktop() && !!params.id && settings.general.newLayoutDesigns() && !mobileTabsBottom()}>
+        {mobileTabs(true)}
+      </Show>
+      <div class="flex-1 min-h-0 overflow-hidden">
+        <Switch>
+          <Match when={params.id && mobileChanges()}>
+            <div class="relative h-full overflow-hidden">
+              {reviewContent({
+                diffStyle: "unified",
+                classes: {
+                  root: "pb-8 [&_[data-slot=session-review-list]]:pb-0",
+                  header: "px-4 !h-16 !pb-4",
+                  container: "px-4",
+                },
+                loadingClass: "px-4 py-4 text-text-weak",
+                emptyClass: "h-full pb-64 -mt-4 flex flex-col items-center justify-center text-center gap-6",
+              })}
+            </div>
+          </Match>
+          <Match when={params.id}>
+            <Show when={messagesReady() ? params.id : undefined} keyed>
+              {(_id) => (
+                <MessageTimeline
+                  actions={actions}
+                  scroll={ui.scroll}
+                  onResumeScroll={resumeScroll}
+                  setScrollRef={setScrollRef}
+                  onScheduleScrollState={scheduleScrollState}
+                  onAutoScrollHandleScroll={autoScroll.handleScroll}
+                  onMarkScrollGesture={markScrollGesture}
+                  hasScrollGesture={hasScrollGesture}
+                  onUserScroll={markUserScroll}
+                  onHistoryScroll={onHistoryScroll}
+                  onAutoScrollInteraction={autoScroll.handleInteraction}
+                  shouldAnchorBottom={() =>
+                    !location.hash && !store.messageId && !ui.pendingMessage && !autoScroll.userScrolled()
+                  }
+                  centered={centered()}
+                  setContentRef={(el) => {
+                    content = el
+                    autoScroll.contentRef(el)
+
+                    const root = scroller
+                    if (root) scheduleScrollState(root)
+                  }}
+                  userMessages={visibleUserMessages()}
+                  setHistoryAnchor={(handlers) => {
+                    captureHistoryAnchor = handlers.capture
+                    restoreHistoryAnchor = handlers.restore
+                  }}
+                  anchor={anchor}
+                  setRevealMessage={(fn) => {
+                    revealMessage = fn
+                  }}
+                  setScrollToEnd={(fn) => {
+                    scrollToEnd = fn
+                  }}
+                />
+              )}
+            </Show>
+          </Match>
+          <Match when={true}>
+            <NewSessionView worktree={newSessionWorktree()} />
+          </Match>
+        </Switch>
+      </div>
+
+      <Show when={(params.id || !newSessionDesign()) && !mobileChanges()}>{(_) => composerRegion()}</Show>
+      <Show when={!!params.id && mobileTabsBottom()}>{mobileTabs(true, true)}</Show>
+    </>
+  )
+
   return (
     <div class="relative size-full overflow-hidden flex flex-col">
       <SessionHeader />
@@ -1770,78 +1845,11 @@ export default function Page() {
               "shadow-[var(--v2-elevation-raised)]": settings.general.newLayoutDesigns() && !!params.id,
             }}
           >
-            <ErrorBoundary fallback={sessionErrorFallback}>
-              {sessionSync() ?? ""}
-              <Show when={!isDesktop() && !!params.id && settings.general.newLayoutDesigns() && !mobileTabsBottom()}>
-                {mobileTabs(true)}
-              </Show>
-              <div class="flex-1 min-h-0 overflow-hidden">
-                <Switch>
-                  <Match when={params.id && mobileChanges()}>
-                    <div class="relative h-full overflow-hidden">
-                      {reviewContent({
-                        diffStyle: "unified",
-                        classes: {
-                          root: "pb-8 [&_[data-slot=session-review-list]]:pb-0",
-                          header: "px-4 !h-16 !pb-4",
-                          container: "px-4",
-                        },
-                        loadingClass: "px-4 py-4 text-text-weak",
-                        emptyClass: "h-full pb-64 -mt-4 flex flex-col items-center justify-center text-center gap-6",
-                      })}
-                    </div>
-                  </Match>
-                  <Match when={params.id}>
-                    <Show when={messagesReady() ? params.id : undefined} keyed>
-                      {(_id) => (
-                        <MessageTimeline
-                          actions={actions}
-                          scroll={ui.scroll}
-                          onResumeScroll={resumeScroll}
-                          setScrollRef={setScrollRef}
-                          onScheduleScrollState={scheduleScrollState}
-                          onAutoScrollHandleScroll={autoScroll.handleScroll}
-                          onMarkScrollGesture={markScrollGesture}
-                          hasScrollGesture={hasScrollGesture}
-                          onUserScroll={markUserScroll}
-                          onHistoryScroll={onHistoryScroll}
-                          onAutoScrollInteraction={autoScroll.handleInteraction}
-                          shouldAnchorBottom={() =>
-                            !location.hash && !store.messageId && !ui.pendingMessage && !autoScroll.userScrolled()
-                          }
-                          centered={centered()}
-                          setContentRef={(el) => {
-                            content = el
-                            autoScroll.contentRef(el)
-
-                            const root = scroller
-                            if (root) scheduleScrollState(root)
-                          }}
-                          userMessages={visibleUserMessages()}
-                          setHistoryAnchor={(handlers) => {
-                            captureHistoryAnchor = handlers.capture
-                            restoreHistoryAnchor = handlers.restore
-                          }}
-                          anchor={anchor}
-                          setRevealMessage={(fn) => {
-                            revealMessage = fn
-                          }}
-                          setScrollToEnd={(fn) => {
-                            scrollToEnd = fn
-                          }}
-                        />
-                      )}
-                    </Show>
-                  </Match>
-                  <Match when={true}>
-                    <NewSessionView worktree={newSessionWorktree()} />
-                  </Match>
-                </Switch>
-              </div>
-
-              <Show when={(params.id || !newSessionDesign()) && !mobileChanges()}>{(_) => composerRegion()}</Show>
-              <Show when={!!params.id && mobileTabsBottom()}>{mobileTabs(true, true)}</Show>
-            </ErrorBoundary>
+            {settings.general.newLayoutDesigns() ? (
+              <ErrorBoundary fallback={sessionErrorFallback}>{sessionPanelContent()}</ErrorBoundary>
+            ) : (
+              sessionPanelContent()
+            )}
           </div>
 
           <Show when={desktopReviewOpen()}>
