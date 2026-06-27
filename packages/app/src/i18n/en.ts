@@ -604,6 +604,7 @@ export const dict = {
   "session.tab.session": "Session",
   "session.tab.review": "Review",
   "session.tab.context": "Context",
+  "session.tab.unknown": "Unknown Session",
   "session.panel.reviewAndFiles": "Review and files",
   "session.error.notFound": "This session cannot be found",
   "session.error.serverConnection": "Can't connect to this server",
