@@ -599,7 +599,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     restoreEndOnFocus = false
     requestAnimationFrame(() => {
       if (document.activeElement !== editorRef) return
-      setCursorPosition(editorRef, promptLength(prompt.current()))
+      setCursorPosition(editorRef, prompt.cursor() ?? promptLength(prompt.current()))
       queueScroll()
     })
   }
@@ -1511,7 +1511,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                 </div>
               </div>
               <div class="flex h-11 items-center px-2">
-                <div class="flex min-w-0 flex-1 items-center gap-0">
+                <div class="flex min-w-0 flex-1 items-center gap-1">
                   {fileAttachmentInput()}
                   <TooltipV2
                     placement="top"
