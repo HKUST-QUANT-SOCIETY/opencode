@@ -214,6 +214,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   let fileInputRef: HTMLInputElement | undefined
   let scrollRef!: HTMLDivElement
   let slashPopoverRef!: HTMLDivElement
+  let restoreEndOnFocus = true
 
   const mirror = { input: false }
   const inset = 56
@@ -589,6 +590,16 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       const cursor = prompt.cursor() ?? promptLength(prompt.current())
       editorRef.focus()
       setCursorPosition(editorRef, cursor)
+      queueScroll()
+    })
+  }
+
+  const handleFocus = () => {
+    if (!restoreEndOnFocus) return
+    restoreEndOnFocus = false
+    requestAnimationFrame(() => {
+      if (document.activeElement !== editorRef) return
+      setCursorPosition(editorRef, promptLength(prompt.current()))
       queueScroll()
     })
   }
@@ -1378,6 +1389,11 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   }))
 
   const newSession = () => props.variant === "new-session"
+  const bindEditorRef = (el: HTMLDivElement) => {
+    editorRef = el
+    restoreEndOnFocus = true
+    props.ref?.(el)
+  }
   const showAgentControl = createMemo(() => props.controls.agents.visible && props.controls.agents.options.length > 0)
   const agentControlState = createMemo<ComposerAgentControlState>(() => ({
     title: language.t("command.agent.cycle"),
@@ -1459,10 +1475,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                 <div class="relative max-h-[180px] overflow-y-auto no-scrollbar" ref={(el) => (scrollRef = el)}>
                   <div
                     data-component="prompt-input"
-                    ref={(el) => {
-                      editorRef = el
-                      props.ref?.(el)
-                    }}
+                    ref={bindEditorRef}
                     role="textbox"
                     aria-multiline="true"
                     aria-label={designPlaceholder()}
@@ -1477,6 +1490,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                     onPaste={handlePaste}
                     onCompositionStart={handleCompositionStart}
                     onCompositionEnd={handleCompositionEnd}
+                    onFocus={handleFocus}
                     onBlur={handleBlur}
                     onKeyDown={handleKeyDown}
                     classList={{
@@ -1640,10 +1654,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
               >
                 <div
                   data-component="prompt-input"
-                  ref={(el) => {
-                    editorRef = el
-                    props.ref?.(el)
-                  }}
+                  ref={bindEditorRef}
                   role="textbox"
                   aria-multiline="true"
                   aria-label={placeholder()}
@@ -1658,6 +1669,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                   onPaste={handlePaste}
                   onCompositionStart={handleCompositionStart}
                   onCompositionEnd={handleCompositionEnd}
+                  onFocus={handleFocus}
                   onBlur={handleBlur}
                   onKeyDown={handleKeyDown}
                   classList={{

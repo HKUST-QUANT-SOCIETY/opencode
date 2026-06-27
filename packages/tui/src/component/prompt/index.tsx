@@ -135,7 +135,7 @@ function formatEditorContext(selection: EditorSelection) {
   return `<system-reminder>${ranges.join("\n")} This may or may not be relevant to the current task.</system-reminder>\n`
 }
 
-let stashed: { prompt: PromptInfo; cursor: number } | undefined
+let stashed: { prompt: PromptInfo } | undefined
 
 export function Prompt(props: PromptProps) {
   let input: TextareaRenderable
@@ -614,13 +614,13 @@ export function Prompt(props: PromptProps) {
       input.setText(saved.prompt.input)
       setStore("prompt", saved.prompt)
       restoreExtmarksFromParts(saved.prompt.parts)
-      input.cursorOffset = saved.cursor
+      input.gotoBufferEnd()
     }
   })
 
   onCleanup(() => {
     if (store.prompt.input) {
-      stashed = { prompt: unwrap(store.prompt), cursor: input.cursorOffset }
+      stashed = { prompt: unwrap(store.prompt) }
     }
     setInputTarget(undefined)
     props.ref?.(undefined)
