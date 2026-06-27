@@ -3,6 +3,7 @@ import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { createQuery, skipToken, useMutation, useQueryClient } from "@tanstack/solid-query"
 import {
   batch,
+  ErrorBoundary,
   onCleanup,
   Show,
   Match,
@@ -73,7 +74,7 @@ import { Identifier } from "@/utils/id"
 import { diffs as list } from "@/utils/diffs"
 import { Persist, persisted } from "@/utils/persist"
 import { extractPromptFromParts } from "@/utils/prompt"
-import { formatServerError } from "@/utils/server-errors"
+import { formatServerError, isSessionNotFoundError } from "@/utils/server-errors"
 import { legacySessionHref, requireServerKey, sessionHref } from "@/utils/session-route"
 import { useUsageExceededDialogs } from "./session/usage-exceeded-dialogs"
 import { createSessionOwnership } from "./session/session-ownership"
@@ -90,6 +91,23 @@ const sessionViewState = () => ({
   mobileTab: "session" as "session" | "changes",
   changes: "git" as ChangeMode,
 })
+
+function isLocalSessionNotFoundError(error: unknown, sessionID: string) {
+  return error instanceof Error && error.message === `Session not found: ${sessionID}`
+}
+
+function isServerConnectionError(error: unknown) {
+  const message = formatServerError(error).toLowerCase()
+  return [
+    "failed to fetch",
+    "fetch failed",
+    "load failed",
+    "networkerror",
+    "connection refused",
+    "econnrefused",
+    "could not connect",
+  ].some((text) => message.includes(text))
+}
 
 async function runPromptRollbackMutation<T, R>(input: {
   capturePrompt: () => { current: () => T[]; set: (value: T[]) => void; reset: () => void }
@@ -1695,9 +1713,35 @@ export default function Page() {
     () => !isDesktop() && settings.general.newLayoutDesigns() && settings.general.mobileTitlebarPosition() === "bottom",
   )
 
+  const sessionErrorText = (error: unknown) => {
+    if (params.id && (isSessionNotFoundError(error, params.id) || isLocalSessionNotFoundError(error, params.id))) {
+      return { title: language.t("session.error.notFound") }
+    }
+    if (isServerConnectionError(error)) {
+      return { title: language.t("session.error.serverConnection"), description: formatServerError(error, language.t) }
+    }
+    return { title: language.t("common.requestFailed"), description: formatServerError(error, language.t) }
+  }
+
+  const sessionErrorFallback = (error: unknown, reset: () => void) => {
+    createEffect(on(sessionKey, reset, { defer: true }))
+    const text = sessionErrorText(error)
+    return (
+      <div class="flex-1 min-h-0 overflow-hidden">
+        <div class="h-full px-6 pb-42 -mt-4 flex flex-col items-center justify-center text-center gap-2">
+          <div class="text-14-medium text-text max-w-md">{text.title}</div>
+          <Show when={text.description}>
+            {(description) => (
+              <div class="text-12-regular text-text-weak max-w-md whitespace-pre-wrap">{description()}</div>
+            )}
+          </Show>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div class="relative size-full overflow-hidden flex flex-col">
-      {sessionSync() ?? ""}
       <SessionHeader />
       <div
         class="flex-1 min-h-0 flex flex-col md:flex-row"
@@ -1726,75 +1770,78 @@ export default function Page() {
               "shadow-[var(--v2-elevation-raised)]": settings.general.newLayoutDesigns() && !!params.id,
             }}
           >
-            <Show when={!isDesktop() && !!params.id && settings.general.newLayoutDesigns() && !mobileTabsBottom()}>
-              {mobileTabs(true)}
-            </Show>
-            <div class="flex-1 min-h-0 overflow-hidden">
-              <Switch>
-                <Match when={params.id && mobileChanges()}>
-                  <div class="relative h-full overflow-hidden">
-                    {reviewContent({
-                      diffStyle: "unified",
-                      classes: {
-                        root: "pb-8 [&_[data-slot=session-review-list]]:pb-0",
-                        header: "px-4 !h-16 !pb-4",
-                        container: "px-4",
-                      },
-                      loadingClass: "px-4 py-4 text-text-weak",
-                      emptyClass: "h-full pb-64 -mt-4 flex flex-col items-center justify-center text-center gap-6",
-                    })}
-                  </div>
-                </Match>
-                <Match when={params.id}>
-                  <Show when={messagesReady() ? params.id : undefined} keyed>
-                    {(_id) => (
-                      <MessageTimeline
-                        actions={actions}
-                        scroll={ui.scroll}
-                        onResumeScroll={resumeScroll}
-                        setScrollRef={setScrollRef}
-                        onScheduleScrollState={scheduleScrollState}
-                        onAutoScrollHandleScroll={autoScroll.handleScroll}
-                        onMarkScrollGesture={markScrollGesture}
-                        hasScrollGesture={hasScrollGesture}
-                        onUserScroll={markUserScroll}
-                        onHistoryScroll={onHistoryScroll}
-                        onAutoScrollInteraction={autoScroll.handleInteraction}
-                        shouldAnchorBottom={() =>
-                          !location.hash && !store.messageId && !ui.pendingMessage && !autoScroll.userScrolled()
-                        }
-                        centered={centered()}
-                        setContentRef={(el) => {
-                          content = el
-                          autoScroll.contentRef(el)
+            <ErrorBoundary fallback={sessionErrorFallback}>
+              {sessionSync() ?? ""}
+              <Show when={!isDesktop() && !!params.id && settings.general.newLayoutDesigns() && !mobileTabsBottom()}>
+                {mobileTabs(true)}
+              </Show>
+              <div class="flex-1 min-h-0 overflow-hidden">
+                <Switch>
+                  <Match when={params.id && mobileChanges()}>
+                    <div class="relative h-full overflow-hidden">
+                      {reviewContent({
+                        diffStyle: "unified",
+                        classes: {
+                          root: "pb-8 [&_[data-slot=session-review-list]]:pb-0",
+                          header: "px-4 !h-16 !pb-4",
+                          container: "px-4",
+                        },
+                        loadingClass: "px-4 py-4 text-text-weak",
+                        emptyClass: "h-full pb-64 -mt-4 flex flex-col items-center justify-center text-center gap-6",
+                      })}
+                    </div>
+                  </Match>
+                  <Match when={params.id}>
+                    <Show when={messagesReady() ? params.id : undefined} keyed>
+                      {(_id) => (
+                        <MessageTimeline
+                          actions={actions}
+                          scroll={ui.scroll}
+                          onResumeScroll={resumeScroll}
+                          setScrollRef={setScrollRef}
+                          onScheduleScrollState={scheduleScrollState}
+                          onAutoScrollHandleScroll={autoScroll.handleScroll}
+                          onMarkScrollGesture={markScrollGesture}
+                          hasScrollGesture={hasScrollGesture}
+                          onUserScroll={markUserScroll}
+                          onHistoryScroll={onHistoryScroll}
+                          onAutoScrollInteraction={autoScroll.handleInteraction}
+                          shouldAnchorBottom={() =>
+                            !location.hash && !store.messageId && !ui.pendingMessage && !autoScroll.userScrolled()
+                          }
+                          centered={centered()}
+                          setContentRef={(el) => {
+                            content = el
+                            autoScroll.contentRef(el)
 
-                          const root = scroller
-                          if (root) scheduleScrollState(root)
-                        }}
-                        userMessages={visibleUserMessages()}
-                        setHistoryAnchor={(handlers) => {
-                          captureHistoryAnchor = handlers.capture
-                          restoreHistoryAnchor = handlers.restore
-                        }}
-                        anchor={anchor}
-                        setRevealMessage={(fn) => {
-                          revealMessage = fn
-                        }}
-                        setScrollToEnd={(fn) => {
-                          scrollToEnd = fn
-                        }}
-                      />
-                    )}
-                  </Show>
-                </Match>
-                <Match when={true}>
-                  <NewSessionView worktree={newSessionWorktree()} />
-                </Match>
-              </Switch>
-            </div>
+                            const root = scroller
+                            if (root) scheduleScrollState(root)
+                          }}
+                          userMessages={visibleUserMessages()}
+                          setHistoryAnchor={(handlers) => {
+                            captureHistoryAnchor = handlers.capture
+                            restoreHistoryAnchor = handlers.restore
+                          }}
+                          anchor={anchor}
+                          setRevealMessage={(fn) => {
+                            revealMessage = fn
+                          }}
+                          setScrollToEnd={(fn) => {
+                            scrollToEnd = fn
+                          }}
+                        />
+                      )}
+                    </Show>
+                  </Match>
+                  <Match when={true}>
+                    <NewSessionView worktree={newSessionWorktree()} />
+                  </Match>
+                </Switch>
+              </div>
 
-            <Show when={(params.id || !newSessionDesign()) && !mobileChanges()}>{(_) => composerRegion()}</Show>
-            <Show when={!!params.id && mobileTabsBottom()}>{mobileTabs(true, true)}</Show>
+              <Show when={(params.id || !newSessionDesign()) && !mobileChanges()}>{(_) => composerRegion()}</Show>
+              <Show when={!!params.id && mobileTabsBottom()}>{mobileTabs(true, true)}</Show>
+            </ErrorBoundary>
           </div>
 
           <Show when={desktopReviewOpen()}>

@@ -605,6 +605,8 @@ export const dict = {
   "session.tab.review": "Review",
   "session.tab.context": "Context",
   "session.panel.reviewAndFiles": "Review and files",
+  "session.error.notFound": "This session cannot be found",
+  "session.error.serverConnection": "Can't connect to this server",
   "session.review.filesChanged": "{{count}} Files Changed",
   "session.review.change.one": "Change",
   "session.review.change.other": "Changes",
