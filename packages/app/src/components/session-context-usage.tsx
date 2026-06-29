@@ -5,7 +5,6 @@ import { ProgressCircleV2 } from "@opencode-ai/ui/v2/progress-circle-v2"
 import { Button } from "@opencode-ai/ui/button"
 import { IconButtonV2 } from "@opencode-ai/ui/v2/icon-button-v2"
 
-import { useFile } from "@/context/file"
 import { useLayout } from "@/context/layout"
 import { useSync } from "@/context/sync"
 import { useLanguage } from "@/context/language"
@@ -13,7 +12,6 @@ import { useProviders } from "@/hooks/use-providers"
 import { useSDK } from "@/context/sdk"
 import { getSessionContext, getSessionTokenTotal } from "@/components/session/session-context-metrics"
 import { useSessionLayout } from "@/pages/session/session-layout"
-import { createSessionTabs } from "@/pages/session/helpers"
 
 interface SessionContextUsageProps {
   variant?: "button" | "indicator"
@@ -34,7 +32,6 @@ function openSessionContext(args: {
 
 export function SessionContextUsage(props: SessionContextUsageProps) {
   const sync = useSync()
-  const file = useFile()
   const layout = useLayout()
   const language = useLanguage()
   const sdk = useSDK()
@@ -43,11 +40,6 @@ export function SessionContextUsage(props: SessionContextUsageProps) {
 
   const variant = createMemo(() => props.variant ?? "button")
   const buttonAppearance = createMemo(() => props.buttonAppearance ?? "default")
-  const tabState = createSessionTabs({
-    tabs,
-    pathFromTab: file.pathFromTab,
-    normalizeTab: (tab) => (tab.startsWith("file://") ? file.tab(tab) : tab),
-  })
   const messages = createMemo(() => (params.id ? (sync().data.message[params.id] ?? []) : []))
   const info = createMemo(() => (params.id ? sync().session.get(params.id) : undefined))
 
@@ -68,12 +60,15 @@ export function SessionContextUsage(props: SessionContextUsageProps) {
   const openContext = () => {
     if (!params.id) return
 
-    if (tabState.activeTab() === "context") {
+    const sessionView = view()
+    if (sessionView.reviewPanel.opened() && tabs().active() === "context") {
+      const hasOtherTabs = tabs().all().some((tab) => tab !== "context" && tab !== "review")
       tabs().close("context")
+      if (!hasOtherTabs) sessionView.reviewPanel.close()
       return
     }
     openSessionContext({
-      view: view(),
+      view: sessionView,
       layout,
       tabs: tabs(),
     })
@@ -81,7 +76,20 @@ export function SessionContextUsage(props: SessionContextUsageProps) {
 
   const circle = () => (
     <div class="flex items-center justify-center">
-      <ProgressCircle size={16} strokeWidth={2} percentage={context()?.usage ?? 0} />
+      <ProgressCircle
+        size={16}
+        strokeWidth={2}
+        percentage={context()?.usage ?? 0}
+        style={
+          variant() === "indicator"
+            ? {
+                "--progress-circle-background": "var(--v2-background-bg-layer-04, var(--border-weak-base))",
+                "--progress-circle-background-overlay": "var(--v2-overlay-simple-overlay-pressed, transparent)",
+                "--progress-circle-progress": "var(--v2-icon-icon-base, var(--icon-base))",
+              }
+            : undefined
+        }
+      />
     </div>
   )
   const circleV2 = () => (
@@ -119,10 +127,10 @@ export function SessionContextUsage(props: SessionContextUsageProps) {
 
   return (
     <Show when={params.id}>
-      <Tooltip value={tooltipValue()} placement={props.placement ?? "top"}>
-        <Switch>
-          <Match when={variant() === "indicator"}>{circle()}</Match>
-          <Match when={buttonAppearance() === "v2"}>
+      <Switch>
+        <Match when={variant() === "indicator"}>{circle()}</Match>
+        <Match when={buttonAppearance() === "v2"}>
+          <Tooltip value={tooltipValue()} placement={props.placement ?? "top"}>
             <IconButtonV2
               type="button"
               variant="ghost-muted"
@@ -131,8 +139,10 @@ export function SessionContextUsage(props: SessionContextUsageProps) {
               onClick={openContext}
               aria-label={language.t("context.usage.view")}
             />
-          </Match>
-          <Match when={true}>
+          </Tooltip>
+        </Match>
+        <Match when={true}>
+          <Tooltip value={tooltipValue()} placement={props.placement ?? "top"}>
             <Button
               type="button"
               variant="ghost"
@@ -142,9 +152,9 @@ export function SessionContextUsage(props: SessionContextUsageProps) {
             >
               {circle()}
             </Button>
-          </Match>
-        </Switch>
-      </Tooltip>
+          </Tooltip>
+        </Match>
+      </Switch>
     </Show>
   )
 }
