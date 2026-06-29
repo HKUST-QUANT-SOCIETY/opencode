@@ -1,4 +1,4 @@
-import { Match, Show, Switch, createMemo } from "solid-js"
+import { Match, Show, Switch, createEffect, createMemo } from "solid-js"
 import { Tooltip, type TooltipProps } from "@opencode-ai/ui/tooltip"
 import { ProgressCircle } from "@opencode-ai/ui/progress-circle"
 import { ProgressCircleV2 } from "@opencode-ai/ui/v2/progress-circle-v2"
@@ -57,6 +57,12 @@ export function SessionContextUsage(props: SessionContextUsageProps) {
     return usd().format(info()?.cost ?? 0)
   })
 
+  let openedPanelWithContext = false
+
+  createEffect(() => {
+    if (!view().reviewPanel.opened()) openedPanelWithContext = false
+  })
+
   const openContext = () => {
     if (!params.id) return
 
@@ -64,9 +70,12 @@ export function SessionContextUsage(props: SessionContextUsageProps) {
     if (sessionView.reviewPanel.opened() && tabs().active() === "context") {
       const hasOtherTabs = tabs().all().some((tab) => tab !== "context" && tab !== "review")
       tabs().close("context")
-      if (!hasOtherTabs) sessionView.reviewPanel.close()
+      if (openedPanelWithContext && !hasOtherTabs) sessionView.reviewPanel.close()
+      openedPanelWithContext = false
       return
     }
+
+    openedPanelWithContext = !sessionView.reviewPanel.opened()
     openSessionContext({
       view: sessionView,
       layout,
