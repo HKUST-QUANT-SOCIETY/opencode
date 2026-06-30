@@ -25,7 +25,7 @@ jobs:
           if [ "$LOGIN" = "opencode-agent[bot]" ] ||
              [ "$ASSOCIATION" = "OWNER" ] ||
              [ "$ASSOCIATION" = "MEMBER" ] ||
-             grep -qxF "$LOGIN" .github/TEAM_MEMBERS; then
+             grep -qxiF "$LOGIN" .github/TEAM_MEMBERS; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
             echo "Skipping issue automation for exempt author: $LOGIN ($ASSOCIATION)"
           else

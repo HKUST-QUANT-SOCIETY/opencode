@@ -15,7 +15,7 @@ const agentLogin = "opencode-agent[bot]"
 const teamMembers = new Set(
   (await Bun.file(new URL("../../.github/TEAM_MEMBERS", import.meta.url)).text())
     .split("\n")
-    .map((line) => line.trim())
+    .map((line) => line.trim().toLowerCase())
     .filter(Boolean),
 )
 const teamAssociations = new Set(["OWNER", "MEMBER"])
@@ -35,7 +35,7 @@ const headers = {
 }
 
 function shouldSkip(i: Issue) {
-  const login = i.user?.login
+  const login = i.user?.login.toLowerCase()
   return login === agentLogin || (login ? teamMembers.has(login) : false) || teamAssociations.has(i.author_association)
 }
 

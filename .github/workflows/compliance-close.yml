@@ -46,12 +46,12 @@ jobs:
               Buffer.from(file.content, 'base64')
                 .toString()
                 .split('\n')
-                .map((line) => line.trim())
+                .map((line) => line.trim().toLowerCase())
                 .filter(Boolean)
             );
 
             function isExempt(item) {
-              const login = item.user?.login;
+              const login = item.user?.login?.toLowerCase();
               return (
                 login === agentLogin ||
                 orgMemberAssociations.has(item.author_association) ||
