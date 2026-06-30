@@ -1,6 +1,7 @@
 import { describe, expect } from "bun:test"
 import { Tool } from "@opencode-ai/core/tool/tool"
 import { AgentV2 } from "@opencode-ai/core/agent"
+import type { PermissionV2 } from "@opencode-ai/core/permission"
 import { ApplicationTools } from "@opencode-ai/core/tool/application-tools"
 import { SessionV2 } from "@opencode-ai/core/session"
 import { SessionMessage } from "@opencode-ai/core/session/message"
@@ -63,8 +64,8 @@ describe("ToolRegistry", () => {
         write: make("edit"),
         apply_patch: make("edit"),
       })
-      const names = (rules: Parameters<ToolRegistry.Interface["materialize"]>[0]) =>
-        toolDefinitions(service, rules).pipe(Effect.map((definitions) => definitions.map((tool) => tool.name)))
+      const names = (permissions: PermissionV2.Ruleset) =>
+        toolDefinitions(service, permissions).pipe(Effect.map((definitions) => definitions.map((tool) => tool.name)))
 
       expect(yield* names([{ action: "question", resource: "*", effect: "deny" }])).toEqual([
         "bash",
@@ -85,6 +86,26 @@ describe("ToolRegistry", () => {
         ]),
       ).toEqual([])
       expect(yield* names([{ action: "edit", resource: "*", effect: "deny" }])).toEqual(["question", "bash"])
+    }),
+  )
+
+  it.effect("selects one edit tool family for each model", () =>
+    Effect.gen(function* () {
+      const service = yield* ToolRegistry.Service
+      yield* service.register({
+        read: make(),
+        edit: make("edit"),
+        write: make("edit"),
+        apply_patch: make("edit"),
+      })
+      const names = (model: ToolRegistry.MaterializeInput["model"]) =>
+        toolDefinitions(service, { model }).pipe(Effect.map((definitions) => definitions.map((tool) => tool.name)))
+
+      expect(yield* names({ id: "gpt-5", provider: "openai" })).toEqual(["read", "apply_patch"])
+      expect(yield* names({ id: "gpt-4o", provider: "opencode" })).toEqual(["read", "apply_patch"])
+      expect(yield* names({ id: "computer-use-preview", provider: "openai" })).toEqual(["read", "apply_patch"])
+      expect(yield* names({ id: "claude-sonnet-4", provider: "anthropic" })).toEqual(["read", "edit", "write"])
+      expect((yield* toolDefinitions(service)).map((tool) => tool.name)).toEqual(["read", "edit", "write"])
     }),
   )
 

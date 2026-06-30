@@ -1,6 +1,6 @@
 export * as ToolRegistry from "./registry"
 
-import { ToolOutput, type ToolCall, type ToolDefinition, type ToolResultValue } from "@opencode-ai/llm"
+import { ToolOutput, type Model, type ToolCall, type ToolDefinition, type ToolResultValue } from "@opencode-ai/llm"
 import { Context, Effect, Layer, Scope } from "effect"
 import type { AgentV2 } from "../agent"
 import { PermissionV2 } from "../permission"
@@ -21,9 +21,14 @@ export type ExecuteInput = {
 }
 
 export interface Interface {
-  readonly materialize: (permissions?: PermissionV2.Ruleset) => Effect.Effect<Materialization>
+  readonly materialize: (input?: MaterializeInput) => Effect.Effect<Materialization>
   /** Internal registration capability exposed publicly only through Tools.Service. */
   readonly register: (tools: Readonly<Record<string, AnyTool>>) => Effect.Effect<void, RegistrationError, Scope.Scope>
+}
+
+export interface MaterializeInput {
+  readonly permissions?: PermissionV2.Ruleset
+  readonly model?: Pick<Model, "id" | "provider">
 }
 
 export interface Materialization {
@@ -102,14 +107,20 @@ const registryLayer = Layer.effect(
           }),
         )
       }),
-      materialize: Effect.fn("ToolRegistry.materialize")(function* (permissions = []) {
+      materialize: Effect.fn("ToolRegistry.materialize")(function* (input = {}) {
         const registrations = new Map(applications.entries())
         for (const [name, entries] of local) {
           const registration = entries.at(-1)?.registration
           if (registration) registrations.set(name, registration)
         }
-        for (const [name, registration] of registrations)
-          if (whollyDisabled(permission(registration.tool, name), permissions)) registrations.delete(name)
+        const usePatch =
+          input.model !== undefined &&
+          (input.model.provider.toLowerCase() === "openai" || input.model.id.toLowerCase().includes("gpt"))
+        for (const [name, registration] of registrations) {
+          if (name === "apply_patch" && !usePatch) registrations.delete(name)
+          if ((name === "edit" || name === "write") && usePatch) registrations.delete(name)
+          if (whollyDisabled(permission(registration.tool, name), input.permissions ?? [])) registrations.delete(name)
+        }
         return {
           definitions: Array.from(registrations, ([name, registration]) => definition(name, registration.tool)),
           settle: (input) => {

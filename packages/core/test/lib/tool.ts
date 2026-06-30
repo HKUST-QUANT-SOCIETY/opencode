@@ -1,4 +1,5 @@
 import { AgentV2 } from "@opencode-ai/core/agent"
+import type { PermissionV2 } from "@opencode-ai/core/permission"
 import { SessionMessage } from "@opencode-ai/core/session/message"
 import { ToolRegistry } from "@opencode-ai/core/tool/registry"
 import { Effect } from "effect"
@@ -10,8 +11,11 @@ export const toolIdentity = {
 
 export const toolDefinitions = (
   registry: ToolRegistry.Interface,
-  permissions?: Parameters<typeof registry.materialize>[0],
-) => registry.materialize(permissions).pipe(Effect.map((materialized) => materialized.definitions))
+  input?: ToolRegistry.MaterializeInput | PermissionV2.Ruleset,
+) =>
+  registry
+    .materialize(Array.isArray(input) ? { permissions: input } : input)
+    .pipe(Effect.map((materialized) => materialized.definitions))
 
 export const settleTool = (registry: ToolRegistry.Interface, input: ToolRegistry.ExecuteInput) =>
   registry.materialize().pipe(Effect.flatMap((materialized) => materialized.settle(input)))
