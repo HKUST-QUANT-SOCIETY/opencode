@@ -557,6 +557,25 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
     }),
   ]
 
+  // QuantCode: /compose 命令 — 预填 prompt 引导 Agent 调 run_agent MCP tool
+  const composeCmds = () => [
+    sessionCommand({
+      id: "quantcode.compose",
+      title: "QuantCode Compose",
+      description: "触发 QuantCode Compose 流（agent 自动调 run_agent MCP tool）",
+      slash: "compose",
+      onSelect: () => {
+        // 预填文本：告诉 Agent 应调 run_agent，用户在冒号后补充任务
+        const prefix = "请用 run_agent 完成以下任务："
+        prompt.set(
+          [{ type: "text" as const, content: prefix, start: 0, end: prefix.length }],
+          prefix.length,
+        )
+        actions.focusInput()
+      },
+    }),
+  ]
+
   const permissionsCmds = () => [
     permissionsCommand({
       id: "permissions.autoaccept",
@@ -579,5 +598,6 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
     ...messageCmds(),
     ...mcpCmds(),
     ...permissionsCmds(),
+    ...composeCmds(),
   ])
 }
