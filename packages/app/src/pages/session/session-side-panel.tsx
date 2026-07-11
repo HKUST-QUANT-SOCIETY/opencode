@@ -32,6 +32,7 @@ import {
 } from "@/pages/session/helpers"
 import { setSessionHandoff } from "@/pages/session/handoff"
 import { useSessionLayout } from "@/pages/session/session-layout"
+import { QuantCodePanel } from "@/components/quantcode/panels"
 
 type RenderDiff = (SnapshotFileDiff & { file: string }) | VcsFileDiff
 
@@ -65,6 +66,8 @@ export function SessionSidePanel(props: {
   const shown = settings.visibility.fileTree
 
   const reviewOpen = createMemo(() => isDesktop() && view().reviewPanel.opened())
+  // QuantCode panel drive-sidebar visibility so the panel renders even when no files/review are open
+  const quantcodeOpen = createMemo(() => isDesktop() && view().quantcodePanel.opened())
   const fileOpen = createMemo(
     () =>
       isDesktop() &&
@@ -73,11 +76,12 @@ export function SessionSidePanel(props: {
         opened: layout.fileTree.opened(),
       }),
   )
-  const open = createMemo(() => reviewOpen() || fileOpen())
+  const open = createMemo(() => reviewOpen() || fileOpen() || quantcodeOpen())
   const reviewTab = createMemo(() => isDesktop())
   const panelWidth = createMemo(() => {
     if (!open()) return "0px"
     if (reviewOpen()) return "auto"
+    if (quantcodeOpen()) return "auto"
     return `${layout.fileTree.width()}px`
   })
   const treeWidth = createMemo(() => (fileOpen() ? `${layout.fileTree.width()}px` : "0px"))
@@ -155,6 +159,18 @@ export function SessionSidePanel(props: {
   const activeTab = tabState.activeTab
   const activeFileTab = tabState.activeFileTab
 
+  // QuantCode: bridge quantcodePanel state with the tab system.
+  // Single untrack-based effect to avoid infinite loop between the two directions.
+  createEffect(() => {
+    const opened = view().quantcodePanel.opened()
+    const current = activeTab()
+    if (opened) {
+      if (current !== "quantcode") openTab("quantcode")
+    } else {
+      if (current === "quantcode") openTab("empty")
+    }
+  })
+
   const fileTreeTab = () => layout.fileTree.tab()
 
   const setFileTreeTabValue = (value: string) => {
@@ -225,7 +241,7 @@ export function SessionSidePanel(props: {
           "transition-[width] duration-[240ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[width] motion-reduce:transition-none":
             !props.size.active() && !props.reviewSnap,
           "rounded-[10px] shadow-[var(--v2-elevation-raised)] overflow-hidden": settings.general.newLayoutDesigns(),
-          "flex-1": reviewOpen(),
+          "flex-1": reviewOpen() || quantcodeOpen(),
         }}
         style={{ width: panelWidth() }}
       >
@@ -237,11 +253,11 @@ export function SessionSidePanel(props: {
             }}
           >
             <div
-              aria-hidden={!reviewOpen()}
-              inert={!reviewOpen()}
+              aria-hidden={!reviewOpen() && !quantcodeOpen()}
+              inert={!reviewOpen() && !quantcodeOpen()}
               class="relative min-w-0 h-full flex-1 overflow-hidden bg-background-base"
               classList={{
-                "pointer-events-none": !reviewOpen(),
+                "pointer-events-none": !reviewOpen() && !quantcodeOpen(),
               }}
             >
               <div class="size-full min-w-0 h-full bg-background-base">
@@ -299,6 +315,11 @@ export function SessionSidePanel(props: {
                             </div>
                           </Tabs.Trigger>
                         </Show>
+                        <Tabs.Trigger value="quantcode">
+                          <div class="flex items-center gap-1.5">
+                            <div>QuantCode</div>
+                          </div>
+                        </Tabs.Trigger>
                         <SortableProvider ids={openedTabs()}>
                           <For each={openedTabs()}>{(tab) => <SortableTab tab={tab} onTabClose={tabs().close} />}</For>
                         </SortableProvider>
@@ -330,6 +351,12 @@ export function SessionSidePanel(props: {
                         <Show when={reviewOpen() && activeTab() === "review"}>{props.reviewPanel()}</Show>
                       </Tabs.Content>
                     </Show>
+
+                    <Tabs.Content value="quantcode" class="flex flex-col h-full overflow-hidden contain-strict">
+                      <Show when={activeTab() === "quantcode"}>
+                        <QuantCodePanel />
+                      </Show>
+                    </Tabs.Content>
 
                     <Tabs.Content value="empty" class="flex flex-col h-full overflow-hidden contain-strict">
                       <Show when={activeTab() === "empty"}>

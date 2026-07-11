@@ -12,7 +12,17 @@
       "description": "Contains opencode logs and data",
     },
   },
-  "mcp": {},
+  "mcp": {
+    "quantcode": {
+      "type": "local",
+      "command": ["python", "-m", "quantcode.mcp_server"],
+      "cwd": "../code/HKUST-QUANT-SOCIETY/quantcode",
+      "environment": {
+        "PYTHONPATH": "../code/HKUST-QUANT-SOCIETY/quantcode"
+      },
+      "enabled": true
+    }
+  },
   "tools": {
     "github-triage": false,
     "github-pr-search": false,
