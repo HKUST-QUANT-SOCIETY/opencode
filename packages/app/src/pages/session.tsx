@@ -31,6 +31,7 @@ import { showToast } from "@/utils/toast"
 import { base64Encode, checksum } from "@opencode-ai/core/util/encode"
 import { useLocation, useNavigate, useSearchParams } from "@solidjs/router"
 import { NewSessionView, SessionHeader } from "@/components/session"
+import { updateQuantCodeTrace } from "@/components/quantcode/panels"
 import { useComments } from "@/context/comments"
 import { useServerSync } from "@/context/server-sync"
 import { useLanguage } from "@/context/language"
@@ -1279,6 +1280,47 @@ export default function Page() {
       description: formatServerError(err, language.t),
     })
   }
+
+  // QuantCode: run_agent tool result listener — feeds execution_trace into the QuantCode panel.
+  // Reads from sync().data.part to detect completed run_agent tool calls without modifying execution flow.
+  const qcSeen = new Set<string>()
+  createEffect(() => {
+    try {
+      const parts = sync().data.part
+      for (const [messageId, partList] of Object.entries(parts)) {
+        if (!partList) continue
+        for (const part of partList) {
+          if (!part) continue
+          if (part.type !== "tool") continue
+
+          const state = part.state
+          const toolName = (part as any).tool ?? (part as any).toolName ?? (part as any).name ?? ""
+          if (!/run_agent/i.test(toolName)) continue
+
+          if (state?.status === "running" || state?.status === "pending") continue
+          const outputStr = state?.output as string | undefined
+          if (!outputStr) continue
+
+          const id = part.id
+          if (qcSeen.has(id)) continue
+          qcSeen.add(id)
+
+          try {
+            let parsed = JSON.parse(state.output)
+            // Handle MCP double-wrapped JSON: {"content":[{"type":"text","text":"<json_string>"}]}
+            if (!parsed.execution_trace && !parsed.status && parsed.content?.[0]?.text) {
+              try { parsed = JSON.parse(parsed.content[0].text) } catch { /* not double-wrapped */ }
+            }
+            if (parsed && (parsed.execution_trace || parsed.status)) {
+              updateQuantCodeTrace(parsed)
+            }
+          } catch { /* JSON parse error — skip */ }
+        }
+      }
+    } catch {
+      // Effect will retry on next reactivity tick
+    }
+  })
 
   const merge = (next: NonNullable<ReturnType<typeof info>>, target = sync()) => target.session.remember(next)
 

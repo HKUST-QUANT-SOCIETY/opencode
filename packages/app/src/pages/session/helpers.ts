@@ -49,6 +49,8 @@ export const createSessionTabs = (input: TabsInput) => {
     const active = input.tabs().active()
     if (active === "context") return active
     if (active === "review" && review()) return active
+    // Pass through static non-file tab values (e.g. "quantcode", "empty")
+    if (active === "quantcode") return active
     if (active && input.pathFromTab(active)) return input.normalizeTab(active)
 
     const first = openedTabs()[0]
