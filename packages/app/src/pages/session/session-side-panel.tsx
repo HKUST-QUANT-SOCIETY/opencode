@@ -15,6 +15,7 @@ import { useDialog } from "@opencode-ai/ui/context/dialog"
 import FileTree from "@/components/file-tree"
 import { SessionContextUsage } from "@/components/session-context-usage"
 import { SessionContextTab, SortableTab, FileVisual } from "@/components/session"
+import { QuantCodePanel } from "@/components/quantcode/panels"
 import { useCommand } from "@/context/command"
 import { useFile, type SelectedLineRange } from "@/context/file"
 import { useLanguage } from "@/context/language"
@@ -271,6 +272,11 @@ export function SessionSidePanel(props: {
                             </div>
                           </Tabs.Trigger>
                         </Show>
+                        <Tabs.Trigger value="quantcode">
+                          <div class="flex items-center gap-1.5">
+                            <div>QuantCode</div>
+                          </div>
+                        </Tabs.Trigger>
                         <Show when={contextOpen()}>
                           <Tabs.Trigger
                             value="context"
@@ -340,6 +346,14 @@ export function SessionSidePanel(props: {
                               {language.t("session.files.selectToOpen")}
                             </div>
                           </div>
+                        </div>
+                      </Show>
+                    </Tabs.Content>
+
+                    <Tabs.Content value="quantcode" class="flex flex-col h-full overflow-hidden contain-strict">
+                      <Show when={activeTab() === "quantcode"}>
+                        <div class="relative pt-2 flex-1 min-h-0 overflow-hidden">
+                          <QuantCodePanel />
                         </div>
                       </Show>
                     </Tabs.Content>
