@@ -288,4 +288,5 @@ jobs:
           LATEST_YML_DIR: release-latest-yml
           OPENCODE_VERSION: ${{ needs.version.outputs.version }}
           RELEASE_TAG: ${{ needs.version.outputs.tag }}
+          REQUIRED_TARGETS: aarch64-apple-darwin,x86_64-apple-darwin,x86_64-pc-windows-msvc
         run: bun packages/desktop/scripts/finalize-latest-yml.ts

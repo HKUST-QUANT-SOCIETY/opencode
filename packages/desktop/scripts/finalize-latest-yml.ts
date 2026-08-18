@@ -76,6 +76,38 @@ async function read(subdir: string, filename: string): Promise<LatestYml | undef
   return parse(await file.text())
 }
 
+type RequiredTarget = {
+  metadata: string
+  filePart: string
+}
+
+const requiredTargetSpecs: Record<string, RequiredTarget> = {
+  "aarch64-apple-darwin": { metadata: "latest-mac.yml", filePart: "-mac-arm64." },
+  "x86_64-apple-darwin": { metadata: "latest-mac.yml", filePart: "-mac-x64." },
+  "x86_64-pc-windows-msvc": { metadata: "latest.yml", filePart: "-win-x64." },
+}
+
+const requiredTargets = (process.env.REQUIRED_TARGETS ?? "")
+  .split(",")
+  .map((target) => target.trim())
+  .filter(Boolean)
+
+for (const target of requiredTargets) {
+  const spec = requiredTargetSpecs[target]
+  if (!spec) throw new Error(`Unknown required updater target: ${target}`)
+
+  const metadata = await read(`latest-yml-${target}`, spec.metadata)
+  if (!metadata) {
+    throw new Error(`Missing updater metadata for ${target}: ${spec.metadata}`)
+  }
+  if (metadata.version !== version) {
+    throw new Error(`Updater metadata version mismatch for ${target}: expected ${version}, got ${metadata.version}`)
+  }
+  if (!metadata.files.some((file) => file.url.includes(spec.filePart))) {
+    throw new Error(`Updater metadata for ${target} has no matching installer file (${spec.filePart})`)
+  }
+}
+
 const output: Record<string, string> = {}
 
 // Windows: merge arm64 + x64 into single file
