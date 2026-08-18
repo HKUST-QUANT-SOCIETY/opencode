@@ -55,6 +55,36 @@ jobs:
           echo "tag=quantcode-v$version" >> "$GITHUB_OUTPUT"
           echo "publish=$publish" >> "$GITHUB_OUTPUT"
 
+      - name: Require release credentials
+        if: steps.release.outputs.publish == 'true'
+        shell: bash
+        env:
+          QUANTCODE_RELEASE_TOKEN: ${{ secrets.QUANTCODE_RELEASE_TOKEN }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY_CONTENT }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          AZURE_TRUSTED_SIGNING_ACCOUNT_NAME: ${{ secrets.AZURE_TRUSTED_SIGNING_ACCOUNT_NAME }}
+          AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE: ${{ secrets.AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE }}
+          AZURE_TRUSTED_SIGNING_ENDPOINT: ${{ secrets.AZURE_TRUSTED_SIGNING_ENDPOINT }}
+        run: |
+          missing=()
+          for name in \
+            QUANTCODE_RELEASE_TOKEN \
+            APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_API_KEY_CONTENT APPLE_API_KEY_ID APPLE_API_ISSUER \
+            AZURE_CLIENT_ID AZURE_TENANT_ID AZURE_SUBSCRIPTION_ID \
+            AZURE_TRUSTED_SIGNING_ACCOUNT_NAME AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE AZURE_TRUSTED_SIGNING_ENDPOINT; do
+            if [[ -z "${!name}" ]]; then missing+=("$name"); fi
+          done
+          if (( ${#missing[@]} > 0 )); then
+            printf 'Public QuantCode releases require all signing/release secrets. Missing: %s\n' "${missing[*]}" >&2
+            exit 1
+          fi
+
   build:
     needs: version
     name: ${{ matrix.name }}
@@ -79,16 +109,17 @@ jobs:
             target: x86_64-pc-windows-msvc
             platform: --win --x64
             install: --os=win32 --cpu=x64
-          - name: Linux x64
-            runner: ubuntu-24.04
-            target: x86_64-unknown-linux-gnu
-            platform: --linux --x64
-            install: --os=linux --cpu=x64
+          # Linux packaging is intentionally not part of the current release
+          # matrix. Keep the electron-builder Linux target configured for a
+          # later, separately validated release.
 
     env:
       OPENCODE_CHANNEL: quantcode
       OPENCODE_VERSION: ${{ needs.version.outputs.version }}
       RUST_TARGET: ${{ matrix.target }}
+      # Only non-publishing artifact runs may opt into the unsigned updater
+      # path. Signed credentials still take precedence in the resolver.
+      QUANTCODE_UNSIGNED_BUILD: ${{ needs.version.outputs.publish != 'true' }}
       AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
       AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
       AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
@@ -192,7 +223,16 @@ jobs:
             packages/desktop/dist/*.AppImage
             packages/desktop/dist/*.deb
             packages/desktop/dist/*.rpm
-            packages/desktop/dist/latest*.yml
+
+      # Keep each target's updater metadata in its own artifact. In particular,
+      # both macOS jobs emit `latest-mac.yml`; flattening those files into one
+      # release directory makes the last downloaded architecture win.
+      - name: Upload updater metadata
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: latest-yml-${{ matrix.target }}
+          if-no-files-found: error
+          path: packages/desktop/dist/latest*.yml
 
   release:
     needs:
@@ -201,11 +241,25 @@ jobs:
     if: needs.version.outputs.publish == 'true'
     runs-on: ubuntu-24.04
     steps:
+      - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3.6.0
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: package.json
+
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           pattern: quantcode-*
           path: release-assets
           merge-multiple: true
+
+      # Preserve the target directories expected by finalize-latest-yml.ts.
+      # Do not set merge-multiple here: latest-mac.yml is emitted by both
+      # macOS architectures and must be merged, not overwritten.
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: latest-yml-*
+          path: release-latest-yml
 
       - name: Publish GitHub Release
         shell: bash
@@ -231,3 +285,12 @@ jobs:
           else
             gh release create "$TAG" "${files[@]}" --title "QuantCode $VERSION" --generate-notes --repo "$TARGET_REPOSITORY"
           fi
+
+      - name: Publish merged updater metadata
+        env:
+          GH_TOKEN: ${{ secrets.QUANTCODE_RELEASE_TOKEN }}
+          GH_REPO: HKUST-QUANT-SOCIETY/quantcode
+          LATEST_YML_DIR: release-latest-yml
+          OPENCODE_VERSION: ${{ needs.version.outputs.version }}
+          RELEASE_TAG: ${{ needs.version.outputs.tag }}
+        run: bun packages/desktop/scripts/finalize-latest-yml.ts

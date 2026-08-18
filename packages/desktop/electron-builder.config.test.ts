@@ -47,9 +47,28 @@ test("uses an isolated QuantCode identity and release feed", async () => {
     repo: "quantcode",
     channel: "latest",
   })
+  expect(config.extraMetadata?.name).toBe("quantcode")
   expect(config.linux?.executableName).toBe("quantcode")
   expect(config.deb?.packageName).toBe("quantcode")
   expect(config.rpm?.packageName).toBe("quantcode")
+  expect(config.win?.verifyUpdateCodeSignature).toBe(false)
+})
+
+test("enables update signature verification for an explicit signed QuantCode build", async () => {
+  const previousChannel = process.env.OPENCODE_CHANNEL
+  const previousMode = process.env.QUANTCODE_SIGNED_RELEASE
+  process.env.OPENCODE_CHANNEL = "quantcode"
+  process.env.QUANTCODE_SIGNED_RELEASE = "true"
+
+  const module = await import("./electron-builder.config.ts?signed=quantcode")
+  const config = module.default as Configuration
+
+  if (previousChannel === undefined) delete process.env.OPENCODE_CHANNEL
+  else process.env.OPENCODE_CHANNEL = previousChannel
+  if (previousMode === undefined) delete process.env.QUANTCODE_SIGNED_RELEASE
+  else process.env.QUANTCODE_SIGNED_RELEASE = previousMode
+
+  expect(config.win?.verifyUpdateCodeSignature).toBe(true)
 })
 
 test("keeps a hidden prod launcher for old Linux pins", async () => {

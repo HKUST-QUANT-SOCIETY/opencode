@@ -173,7 +173,7 @@ const translate = i18n.translator(() => state.dict, i18n.resolveTemplate)
 
 export function t(key: keyof Dictionary, params?: Record<string, string | number>) {
   const value = translate(key, params)
-  return import.meta.env.OPENCODE_CHANNEL === "quantcode" ? value.replaceAll("OpenCode", "QuantCode") : value
+  return import.meta.env.VITE_OPENCODE_CHANNEL === "quantcode" ? value.replaceAll("OpenCode", "QuantCode") : value
 }
 
 export function initI18n(): Promise<Locale> {

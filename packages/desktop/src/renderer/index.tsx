@@ -49,7 +49,7 @@ if (import.meta.env.VITE_SENTRY_DSN) {
         (i) =>
           i.name !== "Breadcrumbs" &&
           !(
-            import.meta.env.OPENCODE_CHANNEL === "prod" &&
+            import.meta.env.VITE_OPENCODE_CHANNEL === "prod" &&
             (i.name === "GlobalHandlers" || i.name === "BrowserApiErrors")
           ),
       )
@@ -217,7 +217,7 @@ const createPlatform = (): Platform => {
       const notification = new Notification(title, {
         body: description ?? "",
         icon:
-          import.meta.env.OPENCODE_CHANNEL === "quantcode"
+          import.meta.env.VITE_OPENCODE_CHANNEL === "quantcode"
             ? "./quantcode-icon.png"
             : "https://opencode.ai/favicon-96x96-v3.png",
       })
@@ -338,7 +338,7 @@ render(() => {
     const splash = (
       <div class="h-dvh w-screen flex flex-col items-center justify-center bg-background-base">
         <Show
-          when={import.meta.env.OPENCODE_CHANNEL === "quantcode"}
+          when={import.meta.env.VITE_OPENCODE_CHANNEL === "quantcode"}
           fallback={<Splash class="w-16 h-20 opacity-50 animate-pulse" />}
         >
           <img class="qc-desktop-splash-icon" src="./quantcode-icon.png" alt="QuantCode" />

@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 
 import type { Configuration } from "electron-builder"
+import { resolveQuantCodeUpdateMode } from "./update-mode"
 
 const execFileAsync = promisify(execFile)
 const packageDir = path.dirname(fileURLToPath(import.meta.url))
@@ -36,6 +37,7 @@ const channel = (() => {
   if (raw === "dev" || raw === "beta" || raw === "prod" || raw === "quantcode") return raw
   return "dev"
 })()
+const updateMode = channel === "quantcode" ? resolveQuantCodeUpdateMode() : "signed"
 
 const APP_IDS = {
   dev: "ai.opencode.desktop.dev",
@@ -58,6 +60,11 @@ const getBase = (appId: string): Configuration => ({
   // https://www.electron.build/docs/linux/
   extraMetadata: {
     desktopName: `${appId}.desktop`,
+    // electron-builder derives the updater cache directory from the packaged
+    // metadata name (not from publish options). Keep QuantCode's cache fully
+    // separate from OpenCode's while preserving the OpenCode package name for
+    // the other channels.
+    ...(channel === "quantcode" ? { name: "quantcode" } : {}),
   },
   files: ["out/**/*", "resources/**/*"],
   extraResources: existsSync(nativeDir)
@@ -100,7 +107,7 @@ const getBase = (appId: string): Configuration => ({
       sign: signWindows,
     },
     target: ["nsis"],
-    verifyUpdateCodeSignature: false,
+    verifyUpdateCodeSignature: channel === "quantcode" ? updateMode === "signed" : false,
   },
   nsis: {
     oneClick: true,

@@ -111,7 +111,10 @@ if (macX64 || macArm64) {
 }
 
 // Upload to release
-const tag = `v${version}`
+// OpenCode's release tags use `v<version>`, while QuantCode uses
+// `quantcode-v<version>`. Keep the existing default and let alternate
+// channels provide their exact tag without duplicating this merger.
+const tag = process.env.RELEASE_TAG || `v${version}`
 const tmp = process.env.RUNNER_TEMP ?? "/tmp"
 
 for (const [filename, content] of Object.entries(output)) {

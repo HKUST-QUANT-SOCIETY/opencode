@@ -1,5 +1,6 @@
 interface ImportMetaEnv {
   readonly OPENCODE_CHANNEL: string
+  readonly QUANTCODE_UPDATE_MODE?: "signed" | "unsigned" | "disabled"
 }
 
 interface ImportMeta {
