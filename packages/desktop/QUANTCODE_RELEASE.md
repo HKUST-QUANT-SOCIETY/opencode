@@ -37,7 +37,7 @@ When these values are present, the workflow authenticates to Azure Trusted Signi
 
 Linux packages do not require platform code signing, but they are not currently published. Distribution repositories may add their own package signatures after the Linux validation pass.
 
-QuantCode stores updater downloads under `quantcode-updater` and uses a separate `quantcode.updater` preference store, so an OpenCode installation cannot reuse or overwrite its update state. Signed macOS/Windows builds verify their platform signatures and disallow downgrade. Linux releases use the SHA-512 values in the merged metadata. Unsigned mode is only for local or artifact-only testing and must never be published.
+QuantCode stores updater downloads under `quantcode-updater` and uses a separate `quantcode.updater` preference store, so an OpenCode installation cannot reuse or overwrite its update state. Signed macOS/Windows builds verify their platform signatures and disallow downgrade. When Linux is enabled later, its packages will use the SHA-512 values in the merged metadata. Unsigned mode is only for local or artifact-only testing and must never be published.
 
 ## Local macOS package
 
