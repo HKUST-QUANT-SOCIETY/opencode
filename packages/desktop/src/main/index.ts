@@ -14,6 +14,7 @@ import contextMenu from "electron-context-menu"
 import type { ServerReadyData } from "../preload/types"
 import { checkAppExists, resolveAppPath } from "./apps"
 import { CHANNEL, PROTOCOL } from "./constants"
+import { forwardArgvDeepLinks } from "./deep-links"
 import { registerIpcHandlers, sendDeepLinks, sendMenuCommand } from "./ipc"
 import { forwardInitializationFailure } from "./initialization"
 import { exportDebugLogs, initCrashReporter, initLogging, startNetLog, write as writeLog } from "./logging"
@@ -73,6 +74,11 @@ function emitDeepLinks(urls: string[]) {
   if (urls.length === 0) return
   pendingDeepLinks.push(...urls)
   if (mainWindow) sendDeepLinks(mainWindow, urls)
+}
+
+function emitArgvDeepLinks(source: string, argv: readonly string[]) {
+  const urls = forwardArgvDeepLinks(argv, PROTOCOL, emitDeepLinks)
+  if (urls.length > 0) logger.log(`deep link received via ${source}`, { urls })
 }
 
 async function killSidecar() {
@@ -147,6 +153,7 @@ const main = Effect.gen(function* () {
       })
     },
     {
+      channel: CHANNEL,
       logger: {
         log: (message, meta) => logger.log(message, meta),
         error: (message, meta) => logger.error(message, meta),
@@ -188,14 +195,12 @@ const main = Effect.gen(function* () {
     return
   }
 
+  if (process.platform === "win32") emitArgvDeepLinks("initial argv", process.argv)
+
   preferAppEnv(app.getPath("userData"))
 
   app.on("second-instance", (_event: Event, argv: string[]) => {
-    const urls = argv.filter((arg: string) => arg.startsWith(`${PROTOCOL}://`))
-    if (urls.length) {
-      logger.log("deep link received via second-instance", { urls })
-      emitDeepLinks(urls)
-    }
+    emitArgvDeepLinks("second-instance", argv)
     if (mainWindow) {
       mainWindow.show()
       mainWindow.focus()

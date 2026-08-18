@@ -96,6 +96,24 @@ test("derives a required Windows restart from the post-install runtime probe", (
   expect(pendingRestartAfterWslInstall({ available: true, version: "WSL version: 2.6.1", error: null })).toBe(false)
 })
 
+test("does not install the upstream WSL CLI for the QuantCode channel", async () => {
+  let installCalls = 0
+  const controller = createWslServersController("1.16.2", async () => new Promise<never>(() => undefined), {
+    ...testControllerOptions(),
+    channel: "quantcode",
+    installWslCli: async () => {
+      installCalls++
+      throw new Error("upstream installer should not run")
+    },
+  })
+
+  await expect(controller.installOpencode("Debian")).rejects.toThrow(
+    "QuantCode WSL CLI installation is disabled until a QuantCode-compatible backend is available",
+  )
+  expect(installCalls).toBe(0)
+  expect(controller.getState().job).toBeNull()
+})
+
 test("ignores stale background OpenCode checks after removing a WSL server", async () => {
   persistedServers = []
   releaseOpencodeResolve = undefined

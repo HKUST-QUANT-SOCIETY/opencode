@@ -110,16 +110,13 @@ bun dev serve --port 8080
 
 ### Running the Web App
 
-To test UI changes during development:
-
-1. **First, start the OpenCode server** (see [Running the API Server](#running-the-api-server) section above)
-2. **Then run the web app:**
+To test QuantCode UI changes, run the branded launcher from the repository root:
 
 ```bash
-bun run --cwd packages/app dev
+bun run dev:quantcode
 ```
 
-This starts a local dev server at http://localhost:5173 (or similar port shown in output). Most UI changes can be tested here, but the server must be running for full functionality.
+This starts both the backend on http://localhost:4096 and the web app on http://localhost:4444 with the QuantCode channel enabled. Open http://localhost:4444 to verify UI changes.
 
 ### Running the Desktop App
 

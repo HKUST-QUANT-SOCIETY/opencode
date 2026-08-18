@@ -1,16 +1,19 @@
 #!/usr/bin/env bun
 
 import { $ } from "bun"
+import { createHash } from "node:crypto"
+import { createReadStream } from "node:fs"
+import { mkdir, readdir, stat } from "node:fs/promises"
 import path from "path"
 
 const dir = process.env.LATEST_YML_DIR!
 if (!dir) throw new Error("LATEST_YML_DIR is required")
 
-const repo = process.env.GH_REPO
-if (!repo) throw new Error("GH_REPO is required")
-
 const version = process.env.OPENCODE_VERSION
 if (!version) throw new Error("OPENCODE_VERSION is required")
+
+const releaseAssetDir = process.env.RELEASE_ASSET_DIR
+const upload = process.env.UPLOAD_RELEASE_METADATA !== "false"
 
 type FileEntry = {
   url: string
@@ -78,19 +81,34 @@ async function read(subdir: string, filename: string): Promise<LatestYml | undef
 
 type RequiredTarget = {
   metadata: string
-  filePart: string
+  updaterSuffixes: string[]
+  assetSuffixes: string[]
 }
 
 const requiredTargetSpecs: Record<string, RequiredTarget> = {
-  "aarch64-apple-darwin": { metadata: "latest-mac.yml", filePart: "-mac-arm64." },
-  "x86_64-apple-darwin": { metadata: "latest-mac.yml", filePart: "-mac-x64." },
-  "x86_64-pc-windows-msvc": { metadata: "latest.yml", filePart: "-win-x64." },
+  "aarch64-apple-darwin": {
+    metadata: "latest-mac.yml",
+    updaterSuffixes: ["-mac-arm64.zip", "-mac-arm64.dmg"],
+    assetSuffixes: ["-mac-arm64.zip", "-mac-arm64.zip.blockmap", "-mac-arm64.dmg", "-mac-arm64.dmg.blockmap"],
+  },
+  "x86_64-apple-darwin": {
+    metadata: "latest-mac.yml",
+    updaterSuffixes: ["-mac-x64.zip", "-mac-x64.dmg"],
+    assetSuffixes: ["-mac-x64.zip", "-mac-x64.zip.blockmap", "-mac-x64.dmg", "-mac-x64.dmg.blockmap"],
+  },
+  "x86_64-pc-windows-msvc": {
+    metadata: "latest.yml",
+    updaterSuffixes: ["-win-x64.exe"],
+    assetSuffixes: ["-win-x64.exe", "-win-x64.exe.blockmap"],
+  },
 }
 
 const requiredTargets = (process.env.REQUIRED_TARGETS ?? "")
   .split(",")
   .map((target) => target.trim())
   .filter(Boolean)
+
+const requiredMetadata = new Map<string, LatestYml>()
 
 for (const target of requiredTargets) {
   const spec = requiredTargetSpecs[target]
@@ -103,10 +121,18 @@ for (const target of requiredTargets) {
   if (metadata.version !== version) {
     throw new Error(`Updater metadata version mismatch for ${target}: expected ${version}, got ${metadata.version}`)
   }
-  if (!metadata.files.some((file) => file.url.includes(spec.filePart))) {
-    throw new Error(`Updater metadata for ${target} has no matching installer file (${spec.filePart})`)
+
+  for (const suffix of spec.updaterSuffixes) {
+    const filename = `quantcode-${version}${suffix}`
+    if (!metadata.files.some((file) => file.url === filename)) {
+      throw new Error(`Updater metadata for ${target} is missing ${filename}`)
+    }
   }
+
+  requiredMetadata.set(target, metadata)
 }
+
+if (releaseAssetDir) await validateReleaseAssets(releaseAssetDir, requiredTargets, requiredMetadata)
 
 const output: Record<string, string> = {}
 
@@ -147,13 +173,75 @@ if (macX64 || macArm64) {
 // `quantcode-v<version>`. Keep the existing default and let alternate
 // channels provide their exact tag without duplicating this merger.
 const tag = process.env.RELEASE_TAG || `v${version}`
-const tmp = process.env.RUNNER_TEMP ?? "/tmp"
+const outputDir = process.env.FINALIZED_YML_DIR ?? process.env.RUNNER_TEMP ?? "/tmp"
+await mkdir(outputDir, { recursive: true })
+
+const generated: string[] = []
 
 for (const [filename, content] of Object.entries(output)) {
-  const filepath = path.join(tmp, filename)
+  const filepath = path.join(outputDir, filename)
   await Bun.write(filepath, content)
-  await $`gh release upload ${tag} ${filepath} --clobber --repo ${repo}`
-  console.log(`uploaded ${filename}`)
+  generated.push(filepath)
+}
+
+if (releaseAssetDir) {
+  const files = [
+    ...(await readdir(releaseAssetDir)).map((filename) => path.join(releaseAssetDir, filename)),
+    ...generated,
+  ]
+  const checksums = await Promise.all(
+    files
+      .sort((a, b) => path.basename(a).localeCompare(path.basename(b)))
+      .map(async (file) => `${await digest(file, "sha256", "hex")}  ${path.basename(file)}`),
+  )
+  const filepath = path.join(outputDir, "SHA256SUMS")
+  await Bun.write(filepath, checksums.join("\n") + "\n")
+  generated.push(filepath)
+}
+
+if (upload) {
+  const repo = process.env.GH_REPO
+  if (!repo) throw new Error("GH_REPO is required when UPLOAD_RELEASE_METADATA is enabled")
+  for (const filepath of generated) {
+    await $`gh release upload ${tag} ${filepath} --clobber --repo ${repo}`
+    console.log(`uploaded ${path.basename(filepath)}`)
+  }
 }
 
 console.log("finalized latest yml files")
+
+async function validateReleaseAssets(assetDir: string, targets: string[], metadataByTarget: Map<string, LatestYml>) {
+  const expected = targets
+    .flatMap((target) => requiredTargetSpecs[target].assetSuffixes)
+    .map((suffix) => `quantcode-${version}${suffix}`)
+    .sort()
+  const actual = (await readdir(assetDir)).sort()
+  const missing = expected.filter((filename) => !actual.includes(filename))
+  const unexpected = actual.filter((filename) => !expected.includes(filename))
+
+  if (missing.length > 0) throw new Error(`Missing release assets: ${missing.join(", ")}`)
+  if (unexpected.length > 0) throw new Error(`Unexpected release assets: ${unexpected.join(", ")}`)
+
+  for (const target of targets) {
+    const spec = requiredTargetSpecs[target]
+    const metadata = metadataByTarget.get(target)!
+    for (const suffix of spec.updaterSuffixes) {
+      const filename = `quantcode-${version}${suffix}`
+      const entry = metadata.files.find((file) => file.url === filename)!
+      const filepath = path.join(assetDir, filename)
+      const size = (await stat(filepath)).size
+      if (entry.size !== size) {
+        throw new Error(`Updater metadata size mismatch for ${filename}: expected ${size}, got ${entry.size}`)
+      }
+
+      const sha512 = await digest(filepath, "sha512", "base64")
+      if (entry.sha512 !== sha512) throw new Error(`Updater metadata SHA-512 mismatch for ${filename}`)
+    }
+  }
+}
+
+async function digest(file: string, algorithm: "sha256" | "sha512", encoding: "hex" | "base64") {
+  const hash = createHash(algorithm)
+  for await (const chunk of createReadStream(file)) hash.update(chunk)
+  return hash.digest(encoding)
+}

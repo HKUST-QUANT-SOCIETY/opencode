@@ -24,6 +24,7 @@ async function signWindows(configuration: { path: string }) {
   if (!process.env.AZURE_CLIENT_ID || !process.env.AZURE_TENANT_ID || !process.env.AZURE_SUBSCRIPTION_ID) return
   if (!process.env.AZURE_TRUSTED_SIGNING_ACCOUNT_NAME || !process.env.AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE) return
   if (!process.env.AZURE_TRUSTED_SIGNING_ENDPOINT) return
+  if (!process.env.AZURE_TRUSTED_SIGNING_PUBLISHER_NAME) return
 
   await execFileAsync(
     "pwsh",
@@ -47,6 +48,7 @@ const APP_IDS = {
 } as const
 
 const getBase = (appId: string): Configuration => ({
+  forceCodeSigning: channel === "quantcode" && updateMode === "signed",
   artifactName:
     channel === "quantcode" ? "quantcode-${version}-${os}-${arch}.${ext}" : "opencode-desktop-${os}-${arch}.${ext}",
   directories: {
@@ -105,6 +107,11 @@ const getBase = (appId: string): Configuration => ({
     icon: `resources/icons/icon.ico`,
     signtoolOptions: {
       sign: signWindows,
+      signingHashAlgorithms: ["sha256"],
+      publisherName:
+        channel === "quantcode" && updateMode === "signed"
+          ? process.env.AZURE_TRUSTED_SIGNING_PUBLISHER_NAME
+          : undefined,
     },
     target: ["nsis"],
     verifyUpdateCodeSignature: channel === "quantcode" ? updateMode === "signed" : false,

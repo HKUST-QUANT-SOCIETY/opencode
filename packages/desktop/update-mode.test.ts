@@ -35,10 +35,27 @@ describe("QuantCode updater trust mode", () => {
           AZURE_TRUSTED_SIGNING_ACCOUNT_NAME: "account",
           AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE: "profile",
           AZURE_TRUSTED_SIGNING_ENDPOINT: "https://example.test",
+          AZURE_TRUSTED_SIGNING_PUBLISHER_NAME: "CN=HKUST Quant Society, O=HKUST, C=HK",
         },
         "win32",
       ),
     ).toBe("signed")
+  })
+
+  test("requires the Windows publisher subject for automatic signed mode", () => {
+    expect(
+      resolveQuantCodeUpdateMode(
+        {
+          AZURE_CLIENT_ID: "client",
+          AZURE_TENANT_ID: "tenant",
+          AZURE_SUBSCRIPTION_ID: "subscription",
+          AZURE_TRUSTED_SIGNING_ACCOUNT_NAME: "account",
+          AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE: "profile",
+          AZURE_TRUSTED_SIGNING_ENDPOINT: "https://example.test",
+        },
+        "win32",
+      ),
+    ).toBe("disabled")
   })
 
   test("credentials take precedence over the unsigned fallback", () => {
@@ -52,6 +69,7 @@ describe("QuantCode updater trust mode", () => {
           AZURE_TRUSTED_SIGNING_ACCOUNT_NAME: "account",
           AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE: "profile",
           AZURE_TRUSTED_SIGNING_ENDPOINT: "https://example.test",
+          AZURE_TRUSTED_SIGNING_PUBLISHER_NAME: "CN=HKUST Quant Society, O=HKUST, C=HK",
         },
         "win32",
       ),

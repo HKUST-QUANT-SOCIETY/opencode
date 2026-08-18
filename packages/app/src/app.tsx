@@ -47,6 +47,7 @@ import { TerminalProvider } from "@/context/terminal"
 import { TabsProvider, useTabs, type DraftTab } from "@/context/tabs"
 import { SDKProvider, useSDK } from "@/context/sdk"
 import { WslServersProvider } from "@/wsl/context"
+import { PRODUCT_ICON, PRODUCT_NAME, isQuantCode } from "@/brand"
 import DirectoryLayout, { DirectoryDataProvider } from "@/pages/directory-layout"
 import LegacyLayout from "@/pages/layout"
 import NewLayout from "@/pages/layout-new"
@@ -453,7 +454,10 @@ function ConnectionGate(props: ParentProps<{ disableHealthCheck?: boolean }>) {
       when={!checking()}
       fallback={
         <div class="h-dvh w-screen flex flex-col items-center justify-center bg-background-base">
-          <Splash class="w-16 h-20 opacity-50 animate-pulse" />
+          <ProductSplash
+            class="w-16 h-20 opacity-50 animate-pulse"
+            iconClass="w-16 h-16 shrink-0 rounded-[16px] opacity-70 animate-pulse"
+          />
         </div>
       }
     >
@@ -478,6 +482,14 @@ function ConnectionGate(props: ParentProps<{ disableHealthCheck?: boolean }>) {
   )
 }
 
+function ProductSplash(props: { class: string; iconClass: string }) {
+  return (
+    <Show when={isQuantCode} fallback={<Splash class={props.class} />}>
+      <img src={PRODUCT_ICON} alt={PRODUCT_NAME} class={props.iconClass} />
+    </Show>
+  )
+}
+
 function ConnectionError(props: { onRetry?: () => void; onServerSelected?: (key: ServerConnection.Key) => void }) {
   const language = useLanguage()
   const server = useServer()
@@ -492,7 +504,7 @@ function ConnectionError(props: { onRetry?: () => void; onServerSelected?: (key:
   return (
     <div class="h-dvh w-screen flex flex-col items-center justify-center bg-background-base gap-6 p-6">
       <div class="flex flex-col items-center max-w-md text-center">
-        <Splash class="w-12 h-15 mb-4" />
+        <ProductSplash class="w-12 h-15 mb-4" iconClass="w-12 h-12 shrink-0 rounded-[12px] mb-4" />
         <p class="text-14-regular text-text-base">
           {unreachable()[0]}
           <span class="text-text-strong font-medium">{name()}</span>

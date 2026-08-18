@@ -1,6 +1,22 @@
-export const isQuantCode = import.meta.env.VITE_OPENCODE_CHANNEL === "quantcode"
-export const PRODUCT_NAME = isQuantCode ? "QuantCode" : "OpenCode"
-export const PRODUCT_ICON = isQuantCode ? "/quantcode-icon.png" : "https://opencode.ai/favicon-96x96-v3.png"
-export const PRODUCT_FEEDBACK_URL = isQuantCode
-  ? "https://github.com/HKUST-QUANT-SOCIETY/quantcode/issues"
-  : "https://opencode.ai/desktop-feedback"
+export function resolveBrand(channel: ImportMetaEnv["VITE_OPENCODE_CHANNEL"]) {
+  const quantcode = channel === "quantcode"
+  return {
+    isQuantCode: quantcode,
+    name: quantcode ? "QuantCode" : "OpenCode",
+    icon: quantcode ? "/quantcode-icon.png" : "https://opencode.ai/favicon-96x96-v3.png",
+    feedbackUrl: quantcode
+      ? "https://github.com/HKUST-QUANT-SOCIETY/quantcode/issues"
+      : "https://opencode.ai/desktop-feedback",
+    feedbackLabel: quantcode ? "在 GitHub 上" : undefined,
+    feedbackIcon: quantcode ? ("github" as const) : ("discord" as const),
+  }
+}
+
+const brand = resolveBrand(import.meta.env.VITE_OPENCODE_CHANNEL)
+
+export const isQuantCode = brand.isQuantCode
+export const PRODUCT_NAME = brand.name
+export const PRODUCT_ICON = brand.icon
+export const PRODUCT_FEEDBACK_URL = brand.feedbackUrl
+export const PRODUCT_FEEDBACK_LABEL = brand.feedbackLabel
+export const PRODUCT_FEEDBACK_ICON = brand.feedbackIcon

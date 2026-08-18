@@ -29,6 +29,7 @@ export function resolveQuantCodeUpdateMode(
     "AZURE_TRUSTED_SIGNING_ACCOUNT_NAME",
     "AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE",
     "AZURE_TRUSTED_SIGNING_ENDPOINT",
+    "AZURE_TRUSTED_SIGNING_PUBLISHER_NAME",
   ])
 
   if ((platform === "darwin" && appleSigning) || (platform === "win32" && windowsSigning)) return "signed"

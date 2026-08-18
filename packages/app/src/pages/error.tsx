@@ -7,7 +7,14 @@ import { createStore } from "solid-js/store"
 import { usePlatform } from "@/context/platform"
 import { useLanguage } from "@/context/language"
 import { Icon } from "@opencode-ai/ui/icon"
-import { PRODUCT_FEEDBACK_URL, PRODUCT_ICON, PRODUCT_NAME, isQuantCode } from "@/brand"
+import {
+  PRODUCT_FEEDBACK_ICON,
+  PRODUCT_FEEDBACK_LABEL,
+  PRODUCT_FEEDBACK_URL,
+  PRODUCT_ICON,
+  PRODUCT_NAME,
+  isQuantCode,
+} from "@/brand"
 import { errorDescriptionKey } from "./error-description"
 
 export type InitError = {
@@ -359,8 +366,8 @@ export const ErrorPage: Component<ErrorPageProps> = (props) => {
               class="flex items-center text-text-interactive-base gap-1"
               onClick={() => platform.openLink(PRODUCT_FEEDBACK_URL)}
             >
-              <div>{isQuantCode ? "在 GitHub 上" : language.t("error.page.report.discord")}</div>
-              <Icon name={isQuantCode ? "github" : "discord"} class="text-text-interactive-base" />
+              <div>{PRODUCT_FEEDBACK_LABEL ?? language.t("error.page.report.discord")}</div>
+              <Icon name={PRODUCT_FEEDBACK_ICON} class="text-text-interactive-base" />
             </button>
           </div>
           <Show when={platform.version}>

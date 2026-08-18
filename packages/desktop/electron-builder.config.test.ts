@@ -52,23 +52,35 @@ test("uses an isolated QuantCode identity and release feed", async () => {
   expect(config.deb?.packageName).toBe("quantcode")
   expect(config.rpm?.packageName).toBe("quantcode")
   expect(config.win?.verifyUpdateCodeSignature).toBe(false)
+  expect(config.forceCodeSigning).toBe(false)
+  expect(config.win?.signtoolOptions?.publisherName).toBeUndefined()
+  expect(config.win?.signtoolOptions?.signingHashAlgorithms).toEqual(["sha256"])
 })
 
 test("enables update signature verification for an explicit signed QuantCode build", async () => {
   const previousChannel = process.env.OPENCODE_CHANNEL
   const previousMode = process.env.QUANTCODE_SIGNED_RELEASE
+  const previousPublisher = process.env.AZURE_TRUSTED_SIGNING_PUBLISHER_NAME
+  const publisher = "CN=HKUST Quant Society, O=HKUST, C=HK"
   process.env.OPENCODE_CHANNEL = "quantcode"
   process.env.QUANTCODE_SIGNED_RELEASE = "true"
+  process.env.AZURE_TRUSTED_SIGNING_PUBLISHER_NAME = publisher
 
-  const module = await import("./electron-builder.config.ts?signed=quantcode")
-  const config = module.default as Configuration
-
-  if (previousChannel === undefined) delete process.env.OPENCODE_CHANNEL
-  else process.env.OPENCODE_CHANNEL = previousChannel
-  if (previousMode === undefined) delete process.env.QUANTCODE_SIGNED_RELEASE
-  else process.env.QUANTCODE_SIGNED_RELEASE = previousMode
+  const config = await import("./electron-builder.config.ts?signed=quantcode")
+    .then((module) => module.default as Configuration)
+    .finally(() => {
+      if (previousChannel === undefined) delete process.env.OPENCODE_CHANNEL
+      else process.env.OPENCODE_CHANNEL = previousChannel
+      if (previousMode === undefined) delete process.env.QUANTCODE_SIGNED_RELEASE
+      else process.env.QUANTCODE_SIGNED_RELEASE = previousMode
+      if (previousPublisher === undefined) delete process.env.AZURE_TRUSTED_SIGNING_PUBLISHER_NAME
+      else process.env.AZURE_TRUSTED_SIGNING_PUBLISHER_NAME = previousPublisher
+    })
 
   expect(config.win?.verifyUpdateCodeSignature).toBe(true)
+  expect(config.forceCodeSigning).toBe(true)
+  expect(config.win?.signtoolOptions?.publisherName).toBe(publisher)
+  expect(config.win?.signtoolOptions?.signingHashAlgorithms).toEqual(["sha256"])
 })
 
 test("keeps a hidden prod launcher for old Linux pins", async () => {

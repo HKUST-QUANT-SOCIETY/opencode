@@ -5,8 +5,18 @@ import path from "node:path"
 
 const script = path.join(import.meta.dir, "finalize-latest-yml.ts")
 
-const metadata = (url: string, sha512: string) =>
-  `version: 1.2.3\nfiles:\n  - url: ${url}\n    sha512: ${sha512}\n    size: 123\nreleaseDate: '2026-08-19T00:00:00.000Z'\n`
+const metadataFor = (files: Array<{ filename: string; content: string }>) =>
+  [
+    "version: 1.2.3",
+    "files:",
+    ...files.flatMap((file) => [
+      `  - url: ${file.filename}`,
+      `    sha512: ${new Bun.CryptoHasher("sha512").update(file.content).digest("base64")}`,
+      `    size: ${Buffer.byteLength(file.content)}`,
+    ]),
+    "releaseDate: '2026-08-19T00:00:00.000Z'",
+    "",
+  ].join("\n")
 
 test("merges macOS updater metadata and honors the release tag", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "quantcode-latest-yml-"))
@@ -28,15 +38,21 @@ test("merges macOS updater metadata and honors the release tag", async () => {
 
     await Bun.write(
       path.join(metadataRoot, "latest-yml-aarch64-apple-darwin", "latest-mac.yml"),
-      metadata("quantcode-1.2.3-mac-arm64.dmg", "arm-sha"),
+      metadataFor([
+        { filename: "quantcode-1.2.3-mac-arm64.zip", content: "arm-zip" },
+        { filename: "quantcode-1.2.3-mac-arm64.dmg", content: "arm-dmg" },
+      ]),
     )
     await Bun.write(
       path.join(metadataRoot, "latest-yml-x86_64-apple-darwin", "latest-mac.yml"),
-      metadata("quantcode-1.2.3-mac-x64.dmg", "x64-sha"),
+      metadataFor([
+        { filename: "quantcode-1.2.3-mac-x64.zip", content: "x64-zip" },
+        { filename: "quantcode-1.2.3-mac-x64.dmg", content: "x64-dmg" },
+      ]),
     )
     await Bun.write(
       path.join(metadataRoot, "latest-yml-x86_64-pc-windows-msvc", "latest.yml"),
-      metadata("quantcode-1.2.3-win-x64.exe", "win-sha"),
+      metadataFor([{ filename: "quantcode-1.2.3-win-x64.exe", content: "win-exe" }]),
     )
 
     const gh = path.join(bin, "gh")
@@ -103,7 +119,10 @@ test("fails closed when a required target metadata file is missing", async () =>
     await mkdir(path.join(metadataRoot, "latest-yml-aarch64-apple-darwin"), { recursive: true })
     await Bun.write(
       path.join(metadataRoot, "latest-yml-aarch64-apple-darwin", "latest-mac.yml"),
-      metadata("quantcode-1.2.3-mac-arm64.dmg", "arm-sha"),
+      metadataFor([
+        { filename: "quantcode-1.2.3-mac-arm64.zip", content: "arm-zip" },
+        { filename: "quantcode-1.2.3-mac-arm64.dmg", content: "arm-dmg" },
+      ]),
     )
 
     const child = Bun.spawn(["bun", script], {
@@ -121,6 +140,125 @@ test("fails closed when a required target metadata file is missing", async () =>
 
     expect(exitCode).not.toBe(0)
     expect(stderr).toContain("Missing updater metadata for x86_64-pc-windows-msvc")
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test("validates the complete installer set and writes SHA256SUMS before upload", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "quantcode-release-assets-"))
+  const metadataRoot = path.join(root, "metadata")
+  const assetRoot = path.join(root, "assets")
+  const finalizedRoot = path.join(root, "finalized")
+  const files = [
+    "quantcode-1.2.3-mac-arm64.zip",
+    "quantcode-1.2.3-mac-arm64.zip.blockmap",
+    "quantcode-1.2.3-mac-arm64.dmg",
+    "quantcode-1.2.3-mac-arm64.dmg.blockmap",
+    "quantcode-1.2.3-mac-x64.zip",
+    "quantcode-1.2.3-mac-x64.zip.blockmap",
+    "quantcode-1.2.3-mac-x64.dmg",
+    "quantcode-1.2.3-mac-x64.dmg.blockmap",
+    "quantcode-1.2.3-win-x64.exe",
+    "quantcode-1.2.3-win-x64.exe.blockmap",
+  ].map((filename) => ({ filename, content: `fixture:${filename}` }))
+
+  try {
+    await Promise.all([
+      mkdir(path.join(metadataRoot, "latest-yml-aarch64-apple-darwin"), { recursive: true }),
+      mkdir(path.join(metadataRoot, "latest-yml-x86_64-apple-darwin"), { recursive: true }),
+      mkdir(path.join(metadataRoot, "latest-yml-x86_64-pc-windows-msvc"), { recursive: true }),
+      mkdir(assetRoot, { recursive: true }),
+    ])
+    await Promise.all(files.map((file) => Bun.write(path.join(assetRoot, file.filename), file.content)))
+    await Bun.write(
+      path.join(metadataRoot, "latest-yml-aarch64-apple-darwin", "latest-mac.yml"),
+      metadataFor(
+        files.filter((file) => file.filename.endsWith("mac-arm64.zip") || file.filename.endsWith("mac-arm64.dmg")),
+      ),
+    )
+    await Bun.write(
+      path.join(metadataRoot, "latest-yml-x86_64-apple-darwin", "latest-mac.yml"),
+      metadataFor(
+        files.filter((file) => file.filename.endsWith("mac-x64.zip") || file.filename.endsWith("mac-x64.dmg")),
+      ),
+    )
+    await Bun.write(
+      path.join(metadataRoot, "latest-yml-x86_64-pc-windows-msvc", "latest.yml"),
+      metadataFor(files.filter((file) => file.filename.endsWith("win-x64.exe"))),
+    )
+
+    const child = Bun.spawn(["bun", script], {
+      env: {
+        ...process.env,
+        LATEST_YML_DIR: metadataRoot,
+        RELEASE_ASSET_DIR: assetRoot,
+        FINALIZED_YML_DIR: finalizedRoot,
+        UPLOAD_RELEASE_METADATA: "false",
+        OPENCODE_VERSION: "1.2.3",
+        REQUIRED_TARGETS: "aarch64-apple-darwin,x86_64-apple-darwin,x86_64-pc-windows-msvc",
+      },
+      stdout: "pipe",
+      stderr: "pipe",
+    })
+    const [exitCode, stdout, stderr] = await Promise.all([
+      child.exited,
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+    ])
+
+    expect(exitCode).toBe(0)
+    expect(stderr).toBe("")
+    expect(stdout).toContain("finalized latest yml files")
+    expect(await Bun.file(path.join(finalizedRoot, "latest-mac.yml")).exists()).toBe(true)
+    expect(await Bun.file(path.join(finalizedRoot, "latest.yml")).exists()).toBe(true)
+
+    const checksums = await Bun.file(path.join(finalizedRoot, "SHA256SUMS")).text()
+    expect(checksums.trim().split("\n")).toHaveLength(12)
+    for (const file of files) expect(checksums).toContain(`  ${file.filename}`)
+    expect(checksums).toContain("  latest-mac.yml")
+    expect(checksums).toContain("  latest.yml")
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test("fails closed when a required installer blockmap is missing", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "quantcode-release-assets-missing-"))
+  const metadataRoot = path.join(root, "metadata")
+  const assetRoot = path.join(root, "assets")
+  const installer = {
+    filename: "quantcode-1.2.3-win-x64.exe",
+    content: "fixture:quantcode-1.2.3-win-x64.exe",
+  }
+
+  try {
+    await Promise.all([
+      mkdir(path.join(metadataRoot, "latest-yml-x86_64-pc-windows-msvc"), { recursive: true }),
+      mkdir(assetRoot, { recursive: true }),
+    ])
+    await Bun.write(path.join(assetRoot, installer.filename), installer.content)
+    await Bun.write(
+      path.join(metadataRoot, "latest-yml-x86_64-pc-windows-msvc", "latest.yml"),
+      metadataFor([installer]),
+    )
+
+    const child = Bun.spawn(["bun", script], {
+      env: {
+        ...process.env,
+        LATEST_YML_DIR: metadataRoot,
+        RELEASE_ASSET_DIR: assetRoot,
+        UPLOAD_RELEASE_METADATA: "false",
+        OPENCODE_VERSION: "1.2.3",
+        REQUIRED_TARGETS: "x86_64-pc-windows-msvc",
+      },
+      stdout: "pipe",
+      stderr: "pipe",
+    })
+    const [exitCode, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()])
+
+    expect(exitCode).not.toBe(0)
+    expect(stderr).toContain("Missing release assets: quantcode-1.2.3-win-x64.exe.blockmap")
   } finally {
     await rm(root, { recursive: true, force: true })
   }
