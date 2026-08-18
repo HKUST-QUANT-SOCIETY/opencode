@@ -1,20 +1,14 @@
 /**
- * QuantCode 业务面板 — Day 5
+ * QuantCode research workspace.
  *
- * 七个面板：Compose 视图 / 任务树 / HumanGate / Schema 卡片 / Memory 浏览器 / 会话 Resume / Blackboard
- *
- * 数据源：run_agent MCP tool 返回的 execution_trace 事件流。
- * 集成方式：在 session-side-panel.tsx 里加一个 "QuantCode" Tab，挂载本组件。
- *
- * 状态存储在 module-level signal，供同文件内的面板组件共享。
- * 调用方在 tool result 里解析到 execution_trace 时调用 `updateQuantCodeTrace(result)` 更新。
+ * The module-level trace store is intentionally preserved so MCP tool results,
+ * HumanGate resumes, and the full-screen workspace share one source of truth.
  */
-import { For, Match, Show, Switch, createEffect, createMemo, createSignal, onCleanup, type JSX } from "solid-js"
+import { For, Match, Show, Switch, createMemo, createSignal, onCleanup, onMount, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
-
-// ---------------------------------------------------------------------------
-// 共享类型
-// ---------------------------------------------------------------------------
+import { Icon, type IconProps } from "@opencode-ai/ui/icon"
+import { usePrompt } from "@/context/prompt"
+import "./panels.css"
 
 export type TraceEvent = {
   type: string
@@ -28,7 +22,7 @@ export type TraceEvent = {
 }
 
 export type RunAgentResult = {
-  status: "completed" | "waiting_for_human" | "rejected" | "error" | string
+  status: string
   thread_id?: string
   timestamp?: number
   gate?: {
@@ -49,763 +43,757 @@ export type RunAgentResult = {
   error?: string
 }
 
-// ---------------------------------------------------------------------------
-// 共享状态（模块级单例，跨面板共享）
-// ---------------------------------------------------------------------------
-
 const [_trace, setTrace] = createSignal<RunAgentResult | null>(null)
-const [_group, setGroup] = createSignal<string>("factor")
+const [_group, setGroup] = createSignal("factor")
 const [_threadHistory, setThreadHistory] = createSignal<RunAgentResult[]>([])
 
-// ★ Restore last trace from localStorage so panel data survives refresh, session restart,
-//   and tab switch. Overwritten by the next run_agent call (updateQuantCodeTrace).
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null
+}
+
+function isRunAgentResult(value: unknown): value is RunAgentResult {
+  return isRecord(value) && typeof value.status === "string"
+}
+
 try {
   const raw = localStorage.getItem("quantcode:thread_cache")
   if (raw) {
-    const items = JSON.parse(raw) as RunAgentResult[]
-    if (items.length > 0 && items[0]) {
+    const parsed: unknown = JSON.parse(raw)
+    const items = Array.isArray(parsed) ? parsed.filter(isRunAgentResult) : []
+    if (items[0]) {
       setTrace(items[0])
       setThreadHistory(items)
     }
   }
-} catch { /* localStorage not available */ }
+} catch {
+  // Local storage is unavailable in SSR and hardened browser contexts.
+}
 
-/** 外部调用：当 run_agent 返回结果时更新面板状态 */
-export function updateQuantCodeTrace(result: RunAgentResult) {
-  const enriched: RunAgentResult = {
-    ...result,
-    timestamp: result.timestamp ?? Date.now(),
-  }
+function mergeTraceEvents(existing: TraceEvent[], incoming: TraceEvent[]) {
+  const events = new Map<string, TraceEvent>()
+  for (const event of existing) events.set(`${event.iteration ?? 0}:${event.seq ?? 0}`, event)
+  for (const event of incoming) events.set(`${event.iteration ?? 0}:${event.seq ?? 0}`, event)
+  return [...events.values()].sort((a, b) => (a.iteration ?? 0) - (b.iteration ?? 0) || (a.seq ?? 0) - (b.seq ?? 0))
+}
 
-  setThreadHistory((prev) => {
-    const existingIdx = prev.findIndex((r) => enriched.thread_id && r.thread_id === enriched.thread_id)
-    if (existingIdx >= 0) {
-      // Merge: append new execution_trace events onto existing ones, dedupe by (iter, seq)
-      const existing = prev[existingIdx]!
-      const mergedEvents = mergeTraceEvents(existing.execution_trace ?? [], enriched.execution_trace ?? [])
-      // Merge gate with review_history from human_decision and human_review_history
-      const mergedGate = mergeGateWithDecision(existing.gate, enriched.gate, enriched.human_decision, enriched.human_review_history)
-      const merged: RunAgentResult = {
-        ...existing,
-        ...enriched,
-        status: enriched.status ?? existing.status,
-        execution_trace: mergedEvents,
-        gate: mergedGate,
-        timestamp: enriched.timestamp ?? Date.now(),
-      }
-      const next = [...prev]
-      next[existingIdx] = merged
-      setTrace(merged)
-      return next
+function mergeGate(
+  current: RunAgentResult["gate"],
+  incoming: RunAgentResult["gate"],
+  decision?: string,
+  history?: { decision: string; timestamp: number }[],
+) {
+  const entries = [...(current?.review_history ?? [])]
+  for (const entry of history ?? []) {
+    if (!entries.some((item) => item.decision === entry.decision && item.timestamp === entry.timestamp)) {
+      entries.push(entry)
     }
-    setTrace(enriched)
-    return [enriched, ...prev.slice(0, 19)]
+  }
+  if (decision && decision !== "auto" && !entries.some((item) => item.decision === decision)) {
+    entries.push({ decision, timestamp: Date.now() })
+  }
+  const base = incoming ?? current
+  return entries.length ? { ...base, review_history: entries } : base
+}
+
+export function updateQuantCodeTrace(result: RunAgentResult) {
+  const enriched = { ...result, timestamp: result.timestamp ?? Date.now() }
+
+  setThreadHistory((current) => {
+    const index = current.findIndex((item) => enriched.thread_id && item.thread_id === enriched.thread_id)
+    if (index === -1) {
+      setTrace(enriched)
+      return [enriched, ...current].slice(0, 50)
+    }
+
+    const previous = current[index]
+    const merged = {
+      ...previous,
+      ...enriched,
+      execution_trace: mergeTraceEvents(previous.execution_trace ?? [], enriched.execution_trace ?? []),
+      gate: mergeGate(previous.gate, enriched.gate, enriched.human_decision, enriched.human_review_history),
+    }
+    const next = [...current]
+    next[index] = merged
+    setTrace(merged)
+    return next
   })
 
-  // Persist to localStorage
-  try {
-    const key = "quantcode:thread_cache"
-    const raw = localStorage.getItem(key)
-    const existing: RunAgentResult[] = raw ? JSON.parse(raw) : []
-    const existIdx = existing.findIndex((r: RunAgentResult) => enriched.thread_id && r.thread_id === enriched.thread_id)
-    if (existIdx >= 0) {
-      const prevEntry = existing[existIdx]!
-      const mergedEvents = mergeTraceEvents(prevEntry.execution_trace ?? [], enriched.execution_trace ?? [])
-      const mergedGate = mergeGateWithDecision(prevEntry.gate, enriched.gate, enriched.human_decision, enriched.human_review_history)
-      existing[existIdx] = {
-        ...prevEntry,
-        ...enriched,
-        status: enriched.status ?? prevEntry.status,
-        execution_trace: mergedEvents,
-        gate: mergedGate,
-        timestamp: enriched.timestamp ?? Date.now(),
-      }
-      localStorage.setItem(key, JSON.stringify(existing.slice(0, 50)))
-    } else {
-      const filtered = existing.filter((r) => enriched.thread_id && r.thread_id !== enriched.thread_id)
-      localStorage.setItem(key, JSON.stringify([enriched, ...filtered].slice(0, 50)))
+  queueMicrotask(() => {
+    try {
+      localStorage.setItem("quantcode:thread_cache", JSON.stringify(_threadHistory().slice(0, 50)))
+    } catch {
+      // The workspace remains usable without persistence.
     }
-  } catch { /* localStorage not available */ }
+  })
 }
 
-/** Merge two execution_trace arrays: dedupe by (iteration, seq) compound key, sort by iteration then seq. */
-function mergeTraceEvents(existing: TraceEvent[], incoming: TraceEvent[]): TraceEvent[] {
-  const seen = new Map<string, TraceEvent>()
-  for (const e of existing) {
-    const key = `${e.iteration ?? 0}:${e.seq ?? 0}`
-    seen.set(key, e)
-  }
-  for (const e of incoming) {
-    const key = `${e.iteration ?? 0}:${e.seq ?? 0}`
-    seen.set(key, e)
-  }
-  return [...seen.values()].sort((a, b) =>
-    ((a.iteration ?? 0) - (b.iteration ?? 0)) || ((a.seq ?? 0) - (b.seq ?? 0)),
-  )
-}
-
-/** Merge gate objects: append human_decision and human_review_history entries to review_history. */
-function mergeGateWithDecision(
-  existingGate: RunAgentResult["gate"],
-  incomingGate: RunAgentResult["gate"],
-  humanDecision?: string,
-  humanReviewHistory?: { decision: string; timestamp: number }[],
-): RunAgentResult["gate"] {
-  const base = incomingGate ?? existingGate
-  const prevHistory = existingGate?.review_history ?? []
-
-  // Merge human_review_history top-level entries from Python
-  const reviewEntries: { decision: string; timestamp: number }[] = [...prevHistory]
-  if (humanReviewHistory && humanReviewHistory.length > 0) {
-    for (const entry of humanReviewHistory) {
-      // Dedupe by timestamp so re-merging doesn't double-add
-      if (!reviewEntries.some((e) => e.decision === entry.decision && e.timestamp === entry.timestamp)) {
-        reviewEntries.push(entry)
-      }
-    }
-  }
-  // Append human_decision (single) if present and not auto
-  if (humanDecision && humanDecision !== "auto") {
-    const reviewEntry = { decision: humanDecision, timestamp: Date.now() }
-    if (!reviewEntries.some((e) => e.decision === reviewEntry.decision && e.timestamp === reviewEntry.timestamp)) {
-      reviewEntries.push(reviewEntry)
-    }
-  }
-
-  return reviewEntries.length > 0
-    ? { ...(base ?? {}), review_history: reviewEntries }
-    : (base ?? undefined)
-}
-
-/** 外部调用：切换组时更新 */
 export function setQuantCodeGroup(group: string) {
   setGroup(group)
 }
 
-// ---------------------------------------------------------------------------
-// 事件类型 → 图标（emoji）
-// ---------------------------------------------------------------------------
-
-const EVENT_ICONS: Record<string, string> = {
-  agent_start: "\u{1F680}",
-  user_input: "\u{1F4DD}",
-  llm_thought: "\u{1F4AD}",
-  tool_call: "\u{1F527}",
-  tool_result: "✅",
-  risk_metrics: "\u{1F4CA}",
-  human_gate: "⏸️",
-  output_data: "\u{1F4E6}",
-  artifact: "\u{1F4C4}",
-  agent_end: "\u{1F3C1}",
-  error: "❌",
-  skill_loaded: "\u{1F4CB}",
-  node_update: "\u{1F504}",
-  loop_detected: "\u{1F501}",
-}
-
-// ---------------------------------------------------------------------------
-// 辅助函数
-// ---------------------------------------------------------------------------
-
-/** Human-readable title for each event type. */
-function eventTitle(type: string): string {
-  switch (type) {
-    case "agent_start": return "Agent start"
-    case "skill_loaded": return "Skill loaded"
-    case "node_update": return "Node update"
-    case "llm_thought": return "Thought"
-    case "tool_call": return "Tool call"
-    case "tool_result": return "Tool result"
-    case "risk_metrics": return "Risk metrics"
-    case "output_data": return "Output data"
-    case "artifact": return "Artifact"
-    case "human_gate": return "Human gate"
-    case "agent_end": return "Agent end"
-    case "error": return "Error"
-    case "loop_detected": return "Loop detected"
-    default: return type
-  }
-}
-
-/** Build a one-line summary for each event. */
-function eventSummary(event: TraceEvent): string {
-  const d = (event.data ?? {}) as Record<string, unknown>
-  switch (event.type) {
-    case "agent_start": return `Task: ${(d.task as string) ?? ""}`
-    case "llm_thought": return (d.content as string)?.slice(0, 80) ?? ""
-    case "tool_call": return `${d.tool_name ?? d.tool ?? ""}(${JSON.stringify(d.tool_input ?? d.args ?? {})})`
-    case "tool_result": return `${d.tool_name ?? d.tool ?? ""} → ${JSON.stringify(d.result ?? d.output ?? "").slice(0, 80)}`
-    case "artifact": return `${d.artifact_type ?? ""} @ ${(d.artifact_ref ?? d.path ?? "") as string}`
-    case "output_data": return Object.keys(d.output_data ?? d ?? {}).join(", ")
-    case "risk_metrics": {
-      const m = (d.metrics ?? {}) as Record<string, unknown>
-      return `VaR=${m.var_99 ?? "-"} | DD=${m.max_drawdown ?? "-"}`
-    }
-    case "human_gate": {
-      const g = (d.gate ?? {}) as { gate_id?: string; reasons?: string[] }
-      return `${g.gate_id ?? "pending"} : ${(g.reasons ?? []).join(", ")}`
-    }
-    case "agent_end": return `Status: ${(d.status as string) ?? "completed"}`
-    case "error": return (d.error as string)?.slice(0, 80) ?? "Unknown error"
-    default: return JSON.stringify(d).slice(0, 60)
-  }
-}
-
-/** High-level summary for the entire run. */
-function traceSummary(events: TraceEvent[]): string {
-  const tools = events.filter((e) => e.type === "tool_call")
-  const artifacts = events.filter((e) => e.type === "artifact")
-  const endIdx = [...events].reverse().findIndex((e) => e.type !== "skill_loaded" && e.type !== "node_update")
-  const final = endIdx >= 0 ? events[events.length - 1 - endIdx] : events[events.length - 1]
-  const eventStatus = ((final?.data as Record<string, unknown>)?.status as string) ?? final?.type ?? "unknown"
-  const status = eventStatus === "completed" ? "Done" : eventStatus === "waiting_for_human" ? "⏸️ Waiting" : "Running"
-  const toolNames = [...new Set(tools.map((t) => ((t.data as Record<string, unknown>)?.tool_name ?? (t.data as Record<string, unknown>)?.tool ?? "") as string))]
-  return `${status} · ${toolNames.length} tool(s): ${toolNames.join(" → ")} · ${artifacts.length} artifact(s)`
-}
-
-/** Join union types from schema field definitions. */
-function fieldType(value: unknown): string {
-  if (Array.isArray(value)) return value.map(String).join(" | ")
-  if (typeof value === "string") return value
-  return "unknown"
-}
-
-/** Resume a HumanGate checkpoint. */
 function resumeGate(threadId: string, decision: "approve" | "reject") {
-  if (typeof window !== "undefined") {
-    window.dispatchEvent(
-      new CustomEvent("quantcode:humanGate:resume", { detail: { thread_id: threadId, decision } }),
-    )
+  window.dispatchEvent(new CustomEvent("quantcode:humanGate:resume", { detail: { thread_id: threadId, decision } }))
+}
+
+const GROUPS = ["fundamental", "factor", "model", "risk", "strategy", "options"] as const
+const SKILLS = [
+  { id: "auto-factor-evaluation", label: "Auto Factor Evaluation" },
+  { id: "cross-section-research", label: "Cross-section Research" },
+  { id: "risk-review", label: "Risk Review" },
+  { id: "memory-recall", label: "Memory Recall" },
+] as const
+
+type DetailView = "compose" | "activity" | "gate" | "memory" | "settings"
+type SubmitState = "idle" | "starting" | "submitted" | "error"
+
+function readIdentity() {
+  try {
+    return localStorage.getItem("quantcode:ssh_identity") || "Hendrix Chen"
+  } catch {
+    return "Quant Society Member"
   }
 }
 
-// ---------------------------------------------------------------------------
-// 子面板 1：Compose 视图（可折叠事件列表）
-// ---------------------------------------------------------------------------
+function taskFromRun(run: RunAgentResult) {
+  const event = run.execution_trace?.find((item) => item.type === "agent_start")
+  const task = event?.data?.task
+  return typeof task === "string" && task.trim() ? task : `研究任务 ${run.thread_id?.slice(0, 8) ?? "untitled"}`
+}
 
-function ComposeViewPanel(): JSX.Element {
-  const trace = _trace
-  const sorted = createMemo(() => {
-    const events = trace()?.execution_trace ?? []
-    return [...events].sort((a, b) =>
-      ((a.iteration ?? 0) - (b.iteration ?? 0)) || ((a.seq ?? 0) - (b.seq ?? 0)),
-    )
-  })
-  const summary = createMemo(() => traceSummary(sorted()))
-  const [expanded, setExpanded] = createStore<Record<number, boolean>>({})
-  const [copied, setCopied] = createSignal(false)
-  const toggle = (seq: number) => setExpanded(seq, (v) => !v)
-  const copyThreadId = () => {
-    const tid = trace()?.thread_id
-    if (tid) {
-      navigator.clipboard?.writeText(tid).then(() => {
-        setCopied(true)
-        setTimeout(() => setCopied(false), 1500)
-      }).catch(() => {})
-    }
+function formatTime(timestamp?: number) {
+  if (!timestamp) return "刚刚"
+  const date = new Date(timestamp < 10_000_000_000 ? timestamp * 1000 : timestamp)
+  const today = new Date()
+  if (date.toDateString() === today.toDateString()) {
+    return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
   }
+  return date.toLocaleDateString([], { month: "short", day: "numeric" })
+}
+
+function statusLabel(status: string) {
+  if (status === "completed") return "已完成"
+  if (status === "waiting_for_human") return "待审批"
+  if (status === "error") return "异常"
+  if (status === "rejected") return "已拒绝"
+  return "运行中"
+}
+
+function eventTitle(type: string) {
+  const titles: Record<string, string> = {
+    agent_start: "研究已启动",
+    skill_loaded: "Skill 已载入",
+    node_update: "节点状态更新",
+    llm_thought: "Agent 推理",
+    tool_call: "工具调用",
+    tool_result: "工具返回",
+    risk_metrics: "风险指标",
+    human_gate: "HumanGate",
+    output_data: "结构化结果",
+    artifact: "研究产物",
+    agent_end: "研究完成",
+    error: "执行异常",
+  }
+  return titles[type] ?? type
+}
+
+function eventSummary(event: TraceEvent) {
+  const data = event.data ?? {}
+  if (event.type === "agent_start" && typeof data.task === "string") return data.task
+  if (event.type === "tool_call") return displayValue(data.tool_name ?? data.tool, "QuantCode tool")
+  if (event.type === "artifact") return displayValue(data.artifact_ref ?? data.path, "Artifact")
+  if (event.type === "error") return displayValue(data.error, "Unknown error")
+  if (event.node) return event.node
+  return event.flow_name ?? "QuantCode"
+}
+
+function displayValue(value: unknown, fallback: string) {
+  if (typeof value === "string") return value
+  if (typeof value === "number" || typeof value === "boolean") return `${value}`
+  return fallback
+}
+
+function eventIcon(type: string): IconProps["name"] {
+  if (type === "agent_start") return "plus"
+  if (type === "llm_thought") return "brain"
+  if (type === "tool_call" || type === "tool_result") return "mcp"
+  if (type === "risk_metrics" || type === "human_gate") return "review"
+  if (type === "artifact") return "file-tree"
+  if (type === "error") return "warning"
+  if (type === "agent_end") return "check-small"
+  return "code-lines"
+}
+
+function ActivityPanel(props: { onUseTask: (task: string) => void }): JSX.Element {
+  const run = createMemo(() => _trace())
+  const events = createMemo(() => run()?.execution_trace ?? [])
 
   return (
-    <div class="p-3 text-sm flex flex-col gap-2">
-      <div class="font-medium text-[11px] uppercase tracking-wide text-muted">
-        Compose 视图
-      </div>
-      <Show when={trace() !== null} fallback={
-        <div class="text-muted text-xs">
-          等待 run_agent 执行…
-          <br />
-          <span class="opacity-60">输入 /compose &lt;任务&gt; 开始</span>
-        </div>
-      }>
-        <Show when={trace()!.thread_id}>
-          {(tid) => (
-            <div class="rounded border border-border bg-background-dark px-2 py-1.5 flex items-center gap-2 text-[11px] text-muted">
-              <span>thread_id:</span>
-              <code class="rounded bg-black/10 dark:bg-white/10 px-1.5 py-0.5 text-[10px] text-foreground">{tid()}</code>
-              <button type="button" class="text-[10px] text-muted hover:text-foreground shrink-0" onClick={copyThreadId} title="Copy">
-                {copied() ? "✓" : "📋"}
+    <div class="qc-detail-body">
+      <Show
+        when={run()}
+        fallback={
+          <div class="qc-empty-state">
+            <span class="qc-empty-index">00</span>
+            <h3>还没有执行记录</h3>
+            <p>发起一次研究后，Agent、工具调用和产物会按时间顺序出现在这里。</p>
+          </div>
+        }
+      >
+        {(item) => (
+          <>
+            <div class="qc-run-overview">
+              <div>
+                <span class={`qc-status qc-status-${item().status}`}>{statusLabel(item().status)}</span>
+                <h3>{taskFromRun(item())}</h3>
+              </div>
+              <button type="button" class="qc-text-button" onClick={() => props.onUseTask(taskFromRun(item()))}>
+                再次运行
+                <Icon name="arrow-right" size="small" />
               </button>
             </div>
-          )}
-        </Show>
-        <Show when={sorted().length > 0} fallback={
-          <div class="rounded border border-dashed border-border px-4 py-4 text-xs text-muted text-center">
-            暂无 trace 事件。等待 run_agent 执行完成。
-          </div>
-        }>
-          <div class="rounded border border-border bg-background-dark px-2 py-1.5 text-xs font-medium">
-            {summary()}
-          </div>
-          <div class="flex flex-col gap-0.5">
-            <For each={sorted()}>
-              {(event) => {
-                const isOpen = () => !!expanded[event.seq ?? 0]
-                const icon = EVENT_ICONS[event.type] ?? "•"
-                return (
-                  <div class="rounded border border-border bg-background-dark px-2 py-1">
-                    <button type="button" class="w-full flex items-center gap-1.5 text-left hover:opacity-80" onClick={() => toggle(event.seq ?? 0)}>
-                      <span class="text-[10px] text-muted shrink-0" style={{ transform: isOpen() ? "rotate(90deg)" : "rotate(0deg)" }}>{"▶"}</span>
-                      <span class="shrink-0 text-xs">{icon}</span>
-                      <div class="min-w-0 flex-1 flex items-center justify-between gap-2">
-                        <div class="min-w-0 truncate">
-                          <span class="text-[11px] font-medium">{eventTitle(event.type)}</span>
-                          <span class="text-[10px] text-muted ml-2 hidden sm:inline">{eventSummary(event)}</span>
-                        </div>
-                        <span class="text-[10px] text-muted shrink-0">seq {event.seq ?? "-"} · iter {event.iteration ?? "-"}</span>
-                      </div>
-                    </button>
-                    <Show when={isOpen()}>
-                      <div class="mt-1.5 pl-6">
-                        <div class="text-[10px] text-muted mb-1 sm:hidden">{eventSummary(event)}</div>
-                        <pre class="overflow-x-auto rounded bg-black/10 dark:bg-white/5 px-2 py-1.5 text-[10px] leading-5 whitespace-pre-wrap break-all max-h-48">
-                          {JSON.stringify(event.data, null, 2)}
-                        </pre>
-                      </div>
-                    </Show>
+            <div class="qc-run-meta">
+              <span>THREAD</span>
+              <code>{item().thread_id ?? "pending"}</code>
+              <span>{formatTime(item().timestamp)}</span>
+            </div>
+            <div class="qc-timeline">
+              <For each={events()}>
+                {(event, index) => (
+                  <div class="qc-event-row">
+                    <span class="qc-event-index">{String(index() + 1).padStart(2, "0")}</span>
+                    <span class="qc-event-icon">
+                      <Icon name={eventIcon(event.type)} size="small" />
+                    </span>
+                    <div>
+                      <strong>{eventTitle(event.type)}</strong>
+                      <p>{eventSummary(event)}</p>
+                    </div>
+                    <span class="qc-event-iteration">I{event.iteration ?? 0}</span>
                   </div>
-                )
-              }}
-            </For>
+                )}
+              </For>
+            </div>
+            <Show when={(item().artifacts?.length ?? 0) > 0}>
+              <div class="qc-detail-section">
+                <span class="qc-section-label">ARTIFACTS</span>
+                <For each={item().artifacts}>{(artifact) => <code class="qc-artifact">{artifact}</code>}</For>
+              </div>
+            </Show>
+          </>
+        )}
+      </Show>
+    </div>
+  )
+}
+
+function GatePanel(): JSX.Element {
+  const run = createMemo(() => _trace())
+  const gate = createMemo(() => run()?.gate)
+  const waiting = createMemo(() => run()?.status === "waiting_for_human" && !!gate())
+
+  return (
+    <div class="qc-detail-body">
+      <Show
+        when={gate()}
+        fallback={
+          <div class="qc-empty-state">
+            <span class="qc-empty-index">OK</span>
+            <h3>当前没有待处理的风险门</h3>
+            <p>当研究触发仓位、回撤或尾部风险阈值时，审批请求会固定在这里。</p>
           </div>
-          <div class="text-xs font-medium">
-            <span class={
-              trace()!.status === "completed" ? "text-green-600"
-              : trace()!.status === "waiting_for_human" ? "text-yellow-600"
-              : trace()!.status === "error" ? "text-red-600"
-              : "text-muted"
-            }>
-              {trace()!.status}
+        }
+      >
+        {(item) => (
+          <>
+            <span class={`qc-status ${waiting() ? "qc-status-waiting_for_human" : "qc-status-completed"}`}>
+              {waiting() ? "等待人工判断" : "审批已记录"}
             </span>
-          </div>
-        </Show>
-      </Show>
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// 子面板 2：任务树（全部有意义的事件类型）
-// ---------------------------------------------------------------------------
-
-function TaskTreePanel(): JSX.Element {
-  const events = createMemo(() => {
-    const t = _trace()
-    if (!t) return []
-    return t.execution_trace ?? []
-  })
-  const steps = createMemo(() => {
-    const evs = events()
-    const meaningful = evs.filter(e => e.type !== "node_update" && e.type !== "skill_loaded")
-    return meaningful.length > 0 ? meaningful : evs
-  })
-  /** Group events by iteration, sorted by iteration number; events within each group sorted by seq. */
-  const iterationGroups = createMemo(() => {
-    const evs = steps()
-    const groups = new Map<number, TraceEvent[]>()
-    for (const e of evs) {
-      const iter = e.iteration ?? 0
-      if (!groups.has(iter)) groups.set(iter, [])
-      groups.get(iter)!.push(e)
-    }
-    const sorted = [...groups.entries()].sort((a, b) => a[0] - b[0])
-    return sorted.map(([iter, items]) => ({
-      iteration: iter,
-      events: [...items].sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0)),
-    }))
-  })
-  return (
-    <div class="p-3 text-sm">
-      <div class="font-medium text-[11px] uppercase tracking-wide text-muted mb-2">任务树</div>
-      <Show when={steps().length > 0} fallback={
-        <div class="text-muted text-xs">{_trace() === null ? "等待 run_agent 执行…" : "等待工具调用…"}</div>
-      }>
-        <div class="space-y-1">
-          <For each={iterationGroups()}>
-            {(group) => (
-              <div class="rounded border border-border bg-background-dark px-2 py-1.5">
-                <div class="flex items-center gap-2 text-[11px] font-medium text-muted mb-1">
-                  <span class="w-5 h-5 rounded-full bg-black/10 dark:bg-white/10 flex items-center justify-center text-[9px] shrink-0">
-                    {group.iteration}
-                  </span>
-                  Iteration {group.iteration}
-                </div>
-                <div class="space-y-0.5 pl-6">
-                  <For each={group.events}>
-                    {(ev, i) => (
-                      <div class="flex items-center gap-2 text-xs rounded px-2 py-1 hover:bg-black/5 dark:hover:bg-white/5">
-                        <span class="text-[10px] text-muted shrink-0 w-8">{`T${group.iteration}.${i() + 1}`}</span>
-                        <span class="shrink-0">{EVENT_ICONS[ev.type] ?? "•"}</span>
-                        <span class="font-medium min-w-0 truncate">{eventTitle(ev.type)}</span>
-                        <span class="text-[10px] text-muted truncate hidden sm:inline">{eventSummary(ev).slice(0, 60)}</span>
-                      </div>
-                    )}
-                  </For>
-                </div>
-              </div>
-            )}
-          </For>
-        </div>
-      </Show>
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// 子面板 3：HumanGate（安全版 — 使用 _trace() 可选链，永不 crash）
-// ---------------------------------------------------------------------------
-
-function HumanGatePanel(): JSX.Element {
-  const trace = () => _trace()
-  const status = () => trace()?.status
-  const isWaiting = () => status() === "waiting_for_human" && trace()?.gate != null
-  const isCompletedWithGate = () => (status() === "completed" || status() === "stopped") && trace()?.gate != null
-  const gatePresent = () => isWaiting() || isCompletedWithGate()
-  const gateResume = (decision: "approve" | "reject") => {
-    const tid = trace()?.thread_id
-    if (tid) resumeGate(tid, decision)
-  }
-  return (
-    <div class="p-3 text-sm">
-      <div class="font-medium text-[11px] uppercase tracking-wide text-muted mb-2">HumanGate</div>
-      <Switch>
-        <Match when={gatePresent()}>
-          <div class="rounded border border-yellow-400/40 bg-yellow-50/5 dark:bg-yellow-50/[0.02] p-3 space-y-3">
-            <div class="flex items-center gap-2 font-medium text-xs"
-              classList={{
-                "text-yellow-600 dark:text-yellow-400": isWaiting(),
-                "text-green-600": isCompletedWithGate(),
-              }}
-            >
-              {isWaiting() ? "⏸️ 等待人工审批" : "✅ HumanGate 已完成"}
-            </div>
-            <Show when={isWaiting() && trace()?.gate?.message}>{(msg) => <div class="rounded bg-black/5 dark:bg-white/5 px-2 py-1.5 text-xs">{msg()}</div>}</Show>
-            <div class="grid grid-cols-1 gap-1.5 text-[11px] text-muted sm:grid-cols-2">
-              <div><div class="text-[10px] opacity-60">thread_id</div><code class="text-[10px]">{trace()?.thread_id}</code></div>
-              <div><div class="text-[10px] opacity-60">gate_id</div><code class="text-[10px]">{trace()?.gate?.gate_id ?? "pending"}</code></div>
-            </div>
-            <div class="flex flex-col gap-1.5">
-              <div class="text-xs font-medium">Reasons</div>
-              <Show when={(trace()?.gate?.reasons?.length ?? 0) > 0} fallback={<div class="text-[11px] text-muted">等待 risk demo 冻结字段。</div>}>
-                <ul class="list-disc pl-5 text-xs space-y-0.5"><For each={trace()?.gate?.reasons ?? []}>{(r) => <li>{r}</li>}</For></ul>
-              </Show>
-            </div>
-            <Show when={(trace()?.gate?.review_history?.length ?? 0) > 0}>
-              <div class="flex flex-col gap-1.5">
-                <div class="text-xs font-medium">Review history</div>
-                <div class="space-y-1">
-                  <For each={trace()?.gate?.review_history ?? []}>
-                    {(entry) => (
-                      <div class="flex items-center gap-2 rounded bg-black/5 dark:bg-white/5 px-2 py-1 text-[11px]">
-                        <span class={entry.decision === "approve" ? "text-green-600" : "text-red-600"}>
-                          {entry.decision === "approve" ? "✓" : "✗"} {entry.decision}
-                        </span>
-                        <span class="text-[10px] text-muted">{new Date(entry.timestamp).toLocaleString()}</span>
-                      </div>
-                    )}
-                  </For>
-                </div>
-              </div>
-            </Show>
-            <div class="flex flex-col gap-1.5">
-              <div class="text-xs font-medium">Risk metrics</div>
-              <pre class="overflow-x-auto rounded bg-black/5 dark:bg-white/5 px-2 py-1.5 text-[10px] leading-5 whitespace-pre-wrap break-all max-h-40">
-                {JSON.stringify(trace()?.gate?.risk_metrics ?? {}, null, 2)}
-              </pre>
-            </div>
-            <Show when={isWaiting()}>
-              <div class="flex items-center gap-2">
-                <button type="button" disabled={!isWaiting()} class="bg-primary/15 border border-primary/30 rounded px-3 py-1.5 text-xs font-medium text-primary disabled:opacity-40 disabled:cursor-not-allowed hover:bg-primary/25"
-                  onClick={() => gateResume("approve")}>approve</button>
-                <button type="button" disabled={!isWaiting()} class="border border-border rounded px-3 py-1.5 text-xs font-medium text-muted disabled:opacity-40 disabled:cursor-not-allowed hover:bg-black/5 dark:hover:bg-white/5"
-                  onClick={() => gateResume("reject")}>reject</button>
-              </div>
-            </Show>
-          </div>
-        </Match>
-        <Match when={!gatePresent()}>
-          <div class="text-muted text-xs">
-            {trace() === null
-              ? "暂无进行中的 HumanGate"
-              : status() === "completed"
-                ? "流已完成（未经过 HumanGate）"
-                : status() === "error"
-                  ? `上次状态：${status()} — 执行出错`
-                  : `上次状态：${status()}`}
-          </div>
-        </Match>
-      </Switch>
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// 子面板 4：Schema 卡片（接受多种 output_data 形状）
-// ---------------------------------------------------------------------------
-
-type JsonSchemaField = { type?: string | string[]; description?: string; enum?: unknown[]; items?: unknown; [key: string]: unknown }
-type JsonSchema = { title?: string; type?: string; required?: string[]; properties?: Record<string, JsonSchemaField>; [key: string]: unknown }
-
-function SchemaCardPanel(): JSX.Element {
-  const schema = createMemo<JsonSchema | null>(() => {
-    const od = _trace()?.output_data as Record<string, unknown> | undefined
-    if (!od) return null
-    if ((od as any).__schema__ === true && od.type === "object" && od.properties) return od as unknown as JsonSchema
-    if (od.type === "object" && (od.properties != null || od.required != null || od.title != null))
-      return od as unknown as JsonSchema
-    if (Object.keys(od).length > 0) {
-      return {
-        title: "RunAgent output_data",
-        type: "object",
-        properties: Object.fromEntries(
-          Object.entries(od).map(([k, v]) => [k, {
-            type: typeof v === "string" ? "string" : typeof v === "number" ? "number" : Array.isArray(v) ? "array" : "object",
-            description: typeof v === "string" ? v.slice(0, 120) : JSON.stringify(v).slice(0, 120),
-          }]),
-        ),
-      }
-    }
-    return null
-  })
-
-  return (
-    <div class="p-3 text-sm">
-      <div class="font-medium text-[11px] uppercase tracking-wide text-muted mb-2">Schema 卡片</div>
-      <Show when={schema() != null} fallback={
-        <div class="text-muted text-xs">
-          {_trace() === null ? "等待产出…" : "output_data 不可用，等待 run_agent 完成"}
-          <Show when={_trace()?.output_data != null && (schema() == null)}>
-            <pre class="mt-2 rounded border border-border bg-background-dark p-2 text-[10px] leading-relaxed whitespace-pre-wrap break-all overflow-auto max-h-64">
-              {JSON.stringify(_trace()!.output_data, null, 2)}
-            </pre>
-          </Show>
-        </div>
-      }>
-        <div class="rounded border border-border bg-background-dark p-3 flex flex-col gap-3">
-          <div class="text-xs font-medium">{schema()!.title ?? "JSON Schema"}</div>
-          <Show when={schema()!.properties && Object.keys(schema()!.properties!).length > 0}
-            fallback={<pre class="text-[10px] leading-relaxed whitespace-pre-wrap break-all overflow-auto max-h-64">{JSON.stringify(schema(), null, 2)}</pre>}
-          >
-            <For each={Object.entries(schema()!.properties ?? {})}>
-              {([name, field]: [string, JsonSchemaField]) => (
-                <div class="rounded border border-border px-2 py-1.5">
-                  <div class="flex items-center justify-between gap-2">
-                    <div class="text-xs font-medium">{name}</div>
-                    <span class="rounded bg-black/5 dark:bg-white/5 px-1.5 py-0.5 text-[10px] text-muted">{fieldType(field.type)}</span>
+            <h3 class="qc-gate-title">{item().message ?? "HumanGate risk review"}</h3>
+            <div class="qc-detail-section">
+              <span class="qc-section-label">REASONS</span>
+              <For each={item().reasons ?? []}>
+                {(reason, index) => (
+                  <div class="qc-reason-row">
+                    <span>{String(index() + 1).padStart(2, "0")}</span>
+                    <p>{reason}</p>
                   </div>
-                  <Show when={field.description}>{(desc) => <div class="mt-1 text-[11px] text-muted">{desc()}</div>}</Show>
-                </div>
-              )}
-            </For>
-          </Show>
-        </div>
-        <Show when={(_trace()!.artifacts ?? []).length > 0}>
-          <div class="mt-2 space-y-1">
-            <div class="text-[10px] text-muted uppercase tracking-wide">Artifacts</div>
-            <For each={_trace()!.artifacts ?? []}>{(path) => <div class="text-xs font-mono truncate text-green-600">📄 {path}</div>}</For>
-          </div>
-        </Show>
-      </Show>
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// 子面板 5：Memory 浏览器（静态提示，Week 2 接真实 API）
-// ---------------------------------------------------------------------------
-
-function MemoryBrowserPanel(): JSX.Element {
-  return (
-    <div class="p-3 text-sm">
-      <div class="font-medium text-[11px] uppercase tracking-wide text-muted mb-2">Memory 浏览器</div>
-      <div class="text-muted text-xs space-y-1">
-        <p>Memory 只读 MCP 入口计划 Week 2 补充。</p>
-        <p>当前可直接查看 SQLite：<br /><code class="bg-black/10 px-1 rounded text-[10px]">.quantcode/memory.db</code></p>
-      </div>
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// 子面板 6：会话 Resume（checkpoint 列表）
-// ---------------------------------------------------------------------------
-
-function SessionResumePanel(): JSX.Element {
-  const history = _threadHistory
-  return (
-    <div class="p-3 text-sm">
-      <div class="font-medium text-[11px] uppercase tracking-wide text-muted mb-2">会话 Resume</div>
-      <Show when={history().length > 0} fallback={<div class="text-muted text-xs">暂无历史 thread。</div>}>
-        <div class="space-y-1 max-h-64 overflow-auto">
-          <For each={history()}>
-            {(result) => (
-              <div class="rounded border border-border p-2 text-xs">
-                <div class="font-mono truncate text-[10px]">{result.thread_id}</div>
-                <div class={result.status === "completed" ? "text-green-600" : result.status === "waiting_for_human" ? "text-yellow-600" : "text-muted"}>
-                  {result.status}
-                </div>
+                )}
+              </For>
+            </div>
+            <div class="qc-detail-section">
+              <span class="qc-section-label">RISK METRICS</span>
+              <pre class="qc-code-block">{JSON.stringify(item().risk_metrics ?? {}, null, 2)}</pre>
+            </div>
+            <Show when={waiting() && run()?.thread_id}>
+              <div class="qc-gate-actions">
+                <button
+                  type="button"
+                  class="qc-button qc-button-primary"
+                  onClick={() => resumeGate(run()!.thread_id!, "approve")}
+                >
+                  批准继续
+                </button>
+                <button
+                  type="button"
+                  class="qc-button qc-button-secondary"
+                  onClick={() => resumeGate(run()!.thread_id!, "reject")}
+                >
+                  拒绝并停止
+                </button>
               </div>
-            )}
-          </For>
-        </div>
+            </Show>
+          </>
+        )}
       </Show>
     </div>
   )
 }
 
-// ---------------------------------------------------------------------------
-// 子面板 7：Blackboard（demo 数据）
-// ---------------------------------------------------------------------------
-
-function BlackboardPanel(): JSX.Element {
+function MemoryPanel(): JSX.Element {
   return (
-    <div class="p-3 text-sm">
-      <div class="font-medium text-[11px] uppercase tracking-wide text-muted mb-2">Blackboard</div>
-      <div class="text-muted text-xs">Blackboard 只读视图 — Week 2 接真实 MCP tool。</div>
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// ★ TEST BUTTON — 点击即可注入测试 trace，用于验证面板渲染
-// ---------------------------------------------------------------------------
-
-function injectTestTrace() {
-  updateQuantCodeTrace({
-    status: "waiting_for_human",
-    thread_id: "test-" + Date.now(),
-    timestamp: Date.now(),
-    gate: {
-      kind: "human_gate",
-      gate_id: "hg_test_001",
-      message: "⏸️ HumanGate: 测试数据 — VaR99 超标 (0.085 > 0.05)",
-      reasons: ["tail_risk_var_99", "max_drawdown", "position_limit"],
-      risk_metrics: {
-        strategy_id: "pb_roe_ranker",
-        max_drawdown: 0.22,
-        position_limit: 0.92,
-        tail_risk_var_99: 0.085,
-        correlation_with_existing: 0.70,
-      },
-      decision_schema: { allowed: ["approve", "reject"], default: "reject" },
-    },
-    execution_trace: [
-      { type: "agent_start", seq: 1, thread_id: "test", group: "risk", flow_name: "test",
-        node: null, iteration: 0, data: { task: "run risk_stub high_risk" } },
-      { type: "risk_metrics", seq: 2, thread_id: "test", group: "risk", flow_name: "test",
-        node: "run_tool_pipeline", iteration: 0, data: { metrics: { max_drawdown: 0.22, var_99: 0.085 } } },
-      { type: "human_gate", seq: 3, thread_id: "test", group: "risk", flow_name: "test",
-        node: "human_review", iteration: 0, data: { status: "waiting_for_human" } },
-    ],
-    output_data: {
-      __schema__: true,
-      type: "object",
-      title: "RiskProfile (test)",
-      properties: {
-        status: { type: "string", description: "completed" },
-        max_drawdown: { type: "number", description: "0.22" },
-        tail_risk_var_99: { type: "number", description: "0.085" },
-        position_limit: { type: "number", description: "0.92" },
-        correlation_with_existing: { type: "number", description: "0.7" },
-      },
-    },
-    artifacts: ["artifacts/risk/pb_roe_ranker-profile.json"],
-  })
-}
-
-// ---------------------------------------------------------------------------
-// 主面板：Tab 切换七个子面板
-// ---------------------------------------------------------------------------
-
-type TabId = "compose" | "tasks" | "gate" | "schema" | "memory" | "resume" | "blackboard"
-
-const TABS: { id: TabId; label: string }[] = [
-  { id: "compose", label: "Compose" },
-  { id: "tasks", label: "任务树" },
-  { id: "gate", label: "HumanGate" },
-  { id: "schema", label: "Schema" },
-  { id: "memory", label: "Memory" },
-  { id: "resume", label: "Resume" },
-  { id: "blackboard", label: "Blackboard" },
-]
-
-export function QuantCodePanel(): JSX.Element {
-  const [activeTab, setActiveTab] = createSignal<TabId>("compose")
-  const [showTest, setShowTest] = createSignal(false)
-
-  return (
-    <div class="flex flex-col h-full text-sm">
-      {/* Tab bar */}
-      <div class="flex gap-1 px-2 pt-2 pb-1 border-b border-border overflow-x-auto shrink-0">
-        <For each={TABS}>
-          {(tab) => (
-            <button
-              class={[
-                "px-2 py-0.5 rounded text-[11px] whitespace-nowrap transition-colors",
-                activeTab() === tab.id
-                  ? "bg-primary/15 text-primary font-medium"
-                  : "text-muted hover:text-foreground",
-              ].join(" ")}
-              onClick={() => setActiveTab(tab.id)}
-            >
-              {tab.label}
-            </button>
-          )}
-        </For>
+    <div class="qc-detail-body">
+      <div class="qc-memory-intro">
+        <span class="qc-section-label">RESEARCH MEMORY</span>
+        <h3>让下一次研究从团队已经知道的地方开始。</h3>
+        <p>Memory 目前保持只读。可查看已沉淀的决策、产物索引与结构化输出，写入策略将在服务端契约稳定后开放。</p>
       </div>
-
-      {/* Group badge + test button */}
-      <div class="px-3 py-1 text-[10px] text-muted border-b border-border shrink-0 flex items-center justify-between">
+      <div class="qc-memory-grid">
         <div>
-          组：<span class="font-mono font-medium">{_group()}</span>
-          <Show when={_trace()?.thread_id}>
-            {" "}·{" "}
-            <span class="font-mono truncate max-w-[120px] inline-block align-bottom">
-              {_trace()!.thread_id}
-            </span>
-          </Show>
+          <span>01</span>
+          <strong>研究结论</strong>
+          <p>按因子、模型与策略组织的长期结论。</p>
         </div>
-        {/* ★ TEST BUTTON — inject mock data to verify panel rendering */}
-        <button
-          type="button"
-          class="border border-border rounded px-2 py-0.5 text-[10px] text-muted hover:text-foreground hover:bg-black/5 dark:hover:bg-white/5 transition-colors shrink-0"
-          onClick={() => { injectTestTrace(); setShowTest(true) }}
-          title="Inject test trace to verify panel rendering"
-        >
-          🧪 测试数据
-        </button>
+        <div>
+          <span>02</span>
+          <strong>决策记录</strong>
+          <p>HumanGate 判断与审阅历史。</p>
+        </div>
+        <div>
+          <span>03</span>
+          <strong>产物索引</strong>
+          <p>报告、指标和回测结果的可追溯入口。</p>
+        </div>
       </div>
-      <Show when={showTest()}>
-        <div class="px-3 py-0.5 text-[10px] text-green-600 dark:text-green-400 border-b border-border shrink-0">
-          ✅ 测试数据已注入 — 请切换标签页查看 Compose / 任务树 / HumanGate / Schema
+      <div class="qc-detail-section">
+        <span class="qc-section-label">LOCAL STORE</span>
+        <code class="qc-artifact">.quantcode/memory.db</code>
+      </div>
+      <Show when={_trace()?.output_data}>
+        <div class="qc-detail-section">
+          <span class="qc-section-label">LATEST STRUCTURED OUTPUT</span>
+          <pre class="qc-code-block">{JSON.stringify(_trace()?.output_data, null, 2)}</pre>
         </div>
       </Show>
+    </div>
+  )
+}
 
-      {/* Panel content */}
-      <div class="flex-1 overflow-auto">
-        <Switch>
-          <Match when={activeTab() === "compose"}>
-            <ComposeViewPanel />
-          </Match>
-          <Match when={activeTab() === "tasks"}>
-            <TaskTreePanel />
-          </Match>
-          <Match when={activeTab() === "gate"}>
-            <HumanGatePanel />
-          </Match>
-          <Match when={activeTab() === "schema"}>
-            <SchemaCardPanel />
-          </Match>
-          <Match when={activeTab() === "memory"}>
-            <MemoryBrowserPanel />
-          </Match>
-          <Match when={activeTab() === "resume"}>
-            <SessionResumePanel />
-          </Match>
-          <Match when={activeTab() === "blackboard"}>
-            <BlackboardPanel />
-          </Match>
-        </Switch>
+function SettingsPanel(props: { skill: string; onSkillChange: (skill: string) => void }): JSX.Element {
+  return (
+    <div class="qc-detail-body">
+      <div class="qc-setting-row">
+        <div>
+          <span class="qc-section-label">SSH IDENTITY</span>
+          <strong>{readIdentity()}</strong>
+          <p>私钥仅用于建立 Server B 会话，不上传到 GitHub。</p>
+        </div>
+        <span class="qc-connection-pill">
+          <i /> 已连接
+        </span>
       </div>
+      <label class="qc-field-label" for="qc-settings-group">
+        研究组
+      </label>
+      <select
+        id="qc-settings-group"
+        class="qc-select-wide"
+        value={_group()}
+        onChange={(event) => setGroup(event.currentTarget.value)}
+      >
+        <For each={GROUPS}>{(group) => <option value={group}>{group}</option>}</For>
+      </select>
+      <label class="qc-field-label" for="qc-settings-skill">
+        默认 Skill
+      </label>
+      <select
+        id="qc-settings-skill"
+        class="qc-select-wide"
+        value={props.skill}
+        onChange={(event) => props.onSkillChange(event.currentTarget.value)}
+      >
+        <For each={SKILLS}>{(skill) => <option value={skill.id}>{skill.label}</option>}</For>
+      </select>
+      <div class="qc-detail-section">
+        <span class="qc-section-label">EXECUTION TARGET</span>
+        <div class="qc-server-line">
+          <span>Server B</span>
+          <code>Ubuntu · SSH key</code>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export function QuantCodePanel(props: { onClose?: () => void } = {}): JSX.Element {
+  const prompt = usePrompt()
+  const [state, setState] = createStore({
+    view: "compose" as DetailView,
+    task: "",
+    skill: SKILLS[0].id as string,
+    submit: "idle" as SubmitState,
+    error: "",
+  })
+  let taskInput: HTMLTextAreaElement | undefined
+  let shell: HTMLDivElement | undefined
+  let stage: HTMLElement | undefined
+  let fieldCanvas: HTMLCanvasElement | undefined
+  let focusLens: HTMLDivElement | undefined
+  let sharpBrand: HTMLDivElement | undefined
+
+  const selectedSkill = createMemo(() => SKILLS.find((skill) => skill.id === state.skill) ?? SKILLS[0])
+  const gateWaiting = createMemo(() => _trace()?.status === "waiting_for_human")
+  const recent = createMemo(() => {
+    const history = _threadHistory().slice(0, 3)
+    if (history.length) {
+      return history.map((run) => ({
+        id: run.thread_id ?? `${run.timestamp}`,
+        title: taskFromRun(run),
+        meta: `${run.execution_trace?.length ?? 0} steps · ${run.artifacts?.length ?? 0} artifacts`,
+        status: statusLabel(run.status),
+        time: formatTime(run.timestamp),
+        template: false,
+      }))
+    }
+    return [
+      {
+        id: "pb-roe",
+        title: "PB–ROE 中性化因子扫描",
+        meta: "Factor · Auto Factor Evaluation",
+        status: "模板",
+        time: "01",
+        template: true,
+      },
+      {
+        id: "liquidity",
+        title: "短周期流动性因子复核",
+        meta: "Risk · Cross-section Research",
+        status: "模板",
+        time: "02",
+        template: true,
+      },
+      {
+        id: "vol-surface",
+        title: "期权波动率曲面异常",
+        meta: "Options · Risk Review",
+        status: "模板",
+        time: "03",
+        template: true,
+      },
+    ]
+  })
+
+  const instruction = () => {
+    const task = state.task.trim()
+    return (
+      "You MUST call the quantcode_run_agent MCP tool NOW. Do NOT chat. Do NOT acknowledge. " +
+      `Invoke it with task: ${JSON.stringify(task)}, group: ${JSON.stringify(_group())}. ` +
+      `Use the ${selectedSkill().label} skill when applicable.`
+    )
+  }
+
+  const submitResearch = () => {
+    if (!state.task.trim() || state.submit === "starting") return
+    const content = instruction()
+    setState({ submit: "starting", error: "" })
+    prompt.set([{ type: "text", content, start: 0, end: content.length }], content.length)
+
+    requestAnimationFrame(() => {
+      const form = document.querySelector<HTMLFormElement>(
+        '[data-component="session-composer"], [data-component="session-new-composer"]',
+      )
+      if (!form) {
+        setState({ submit: "error", error: "当前会话输入框尚未就绪，请稍后重试。" })
+        return
+      }
+      form.requestSubmit()
+      setState("submit", "submitted")
+    })
+  }
+
+  const focusComposer = (task?: string) => {
+    if (task) setState("task", task)
+    setState("view", "compose")
+    requestAnimationFrame(() => taskInput?.focus())
+  }
+
+  onMount(() => {
+    if (!shell || !stage || !fieldCanvas || !focusLens || !sharpBrand) return
+    const elements = { shell, stage, fieldCanvas, focusLens, sharpBrand }
+    const field = { disposed: false, dispose: () => {} }
+    void import("./lens-field").then(async (module) => {
+      const dispose = await module.createQuantCodeLensField({
+        canvas: elements.fieldCanvas,
+        stage: elements.stage,
+        shell: elements.shell,
+        lens: elements.focusLens,
+        sharpBrand: elements.sharpBrand,
+      })
+      if (!field.disposed) {
+        field.dispose = dispose
+        return
+      }
+      dispose()
+    })
+    onCleanup(() => {
+      field.disposed = true
+      field.dispose()
+    })
+  })
+
+  const navItems: { id: DetailView; label: string; icon: IconProps["name"] }[] = [
+    { id: "compose", label: "新建研究", icon: "plus" },
+    { id: "activity", label: "执行记录", icon: "checklist" },
+    { id: "gate", label: "HumanGate", icon: "review" },
+    { id: "memory", label: "Memory", icon: "brain" },
+  ]
+
+  return (
+    <div ref={shell} class="qc-shell">
+      <a class="qc-skip-link" href="#qc-research-prompt">
+        跳到研究输入
+      </a>
+      <aside class="qc-rail" aria-label="QuantCode 导航">
+        <button type="button" class="qc-mark" aria-label="QuantCode 首页" onClick={() => setState("view", "compose")}>
+          QC
+        </button>
+        <nav>
+          <For each={navItems}>
+            {(item) => (
+              <button
+                type="button"
+                class="qc-rail-button"
+                classList={{ "is-active": state.view === item.id }}
+                aria-label={item.label}
+                aria-pressed={state.view === item.id}
+                title={item.label}
+                onClick={() => setState("view", item.id)}
+              >
+                <Icon name={item.icon} size="normal" />
+                <Show when={item.id === "gate" && gateWaiting()}>
+                  <span class="qc-rail-alert" />
+                </Show>
+              </button>
+            )}
+          </For>
+        </nav>
+        <div class="qc-rail-footer">
+          <button
+            type="button"
+            class="qc-rail-button"
+            classList={{ "is-active": state.view === "settings" }}
+            aria-label="QuantCode 设置"
+            title="设置"
+            onClick={() => setState("view", "settings")}
+          >
+            <Icon name="settings-gear" size="normal" />
+          </button>
+          <button
+            type="button"
+            class="qc-rail-button"
+            aria-label="关闭 QuantCode 工作区"
+            title="返回 OpenCode"
+            onClick={props.onClose}
+          >
+            <Icon name="close" size="normal" />
+          </button>
+        </div>
+      </aside>
+
+      <main class="qc-main">
+        <header class="qc-identity-bar">
+          <div class="qc-identity">
+            <span>{readIdentity()}</span>
+            <i />
+            <strong>{_group()}</strong>
+          </div>
+          <div class="qc-environment">
+            <span>Server B</span>
+            <i />
+            <span class="qc-connected">
+              <b /> 已连接
+            </span>
+          </div>
+        </header>
+
+        <div class="qc-canvas">
+          <section
+            ref={stage}
+            class="qc-stage"
+            aria-labelledby="qc-lens-title"
+            onPointerDown={(event) => {
+              if (event.target === event.currentTarget) taskInput?.blur()
+            }}
+          >
+            <div class="qc-brand qc-brand-blurred" aria-hidden="true">
+              QUANTCODE
+            </div>
+            <div class="qc-brand qc-brand-dotted" aria-hidden="true">
+              QUANTCODE
+            </div>
+            <div ref={sharpBrand} class="qc-brand qc-brand-sharp" aria-hidden="true">
+              QUANTCODE
+            </div>
+            <canvas ref={fieldCanvas} class="qc-particle-field" aria-hidden="true" />
+            <div ref={focusLens} class="qc-focus-lens" aria-hidden="true" />
+            <div class="qc-lens-action">
+              <button type="button" class="qc-lens-title-button" onClick={() => focusComposer()}>
+                <h1 id="qc-lens-title">新建多智能体研究</h1>
+              </button>
+              <button type="button" class="qc-lens-meta-row" onClick={() => setState("view", "settings")}>
+                <span>组:</span>
+                <strong>{_group()}</strong>
+                <small>· {selectedSkill().label}</small>
+                <Icon name="chevron-down" size="small" />
+              </button>
+              <button type="button" class="qc-lens-meta-row" onClick={() => setState("view", "settings")}>
+                <span>SSH:</span>
+                <strong>Server B</strong>
+                <small>已连接</small>
+                <Icon name="chevron-down" size="small" />
+              </button>
+            </div>
+          </section>
+
+          <section class="qc-compose-zone" id="qc-research-prompt" aria-label="研究任务">
+            <div class="qc-compose-heading">
+              <span>RESEARCH PROMPT</span>
+              <span>{_group().toUpperCase()} / SERVER B</span>
+            </div>
+            <div class="qc-composer" classList={{ "has-error": state.submit === "error" }}>
+              <label for="qc-task">今天研究什么？</label>
+              <textarea
+                id="qc-task"
+                ref={taskInput}
+                value={state.task}
+                rows={2}
+                placeholder="描述任务，或输入 / 调用 Skill."
+                onInput={(event) => {
+                  setState({ task: event.currentTarget.value, submit: "idle", error: "" })
+                }}
+                onKeyDown={(event) => {
+                  if ((event.metaKey || event.ctrlKey) && event.key === "Enter") submitResearch()
+                }}
+              />
+              <div class="qc-composer-actions">
+                <label class="qc-skill-select">
+                  <Icon name="brain" size="small" />
+                  <span class="sr-only">选择 Skill</span>
+                  <select value={state.skill} onChange={(event) => setState("skill", event.currentTarget.value)}>
+                    <For each={SKILLS}>{(skill) => <option value={skill.id}>{skill.label}</option>}</For>
+                  </select>
+                </label>
+                <div class="qc-submit-cluster">
+                  <span>⌘ ENTER</span>
+                  <button
+                    type="button"
+                    disabled={!state.task.trim() || state.submit === "starting"}
+                    onClick={submitResearch}
+                  >
+                    <Show
+                      when={state.submit === "starting"}
+                      fallback={
+                        <>
+                          开始研究 <Icon name="arrow-right" size="small" />
+                        </>
+                      }
+                    >
+                      正在启动
+                    </Show>
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div class="qc-submit-state" aria-live="polite">
+              <Switch>
+                <Match when={state.submit === "submitted"}>
+                  <span class="is-success">研究已提交到 {_group()} Multi-Agent 流。</span>
+                </Match>
+                <Match when={state.submit === "error"}>
+                  <span class="is-error">{state.error}</span>
+                </Match>
+                <Match when={state.submit === "starting"}>
+                  <span>正在建立任务上下文…</span>
+                </Match>
+              </Switch>
+            </div>
+          </section>
+
+          <section class="qc-recents" aria-labelledby="qc-recents-title">
+            <div class="qc-recents-heading">
+              <h2 id="qc-recents-title">{_threadHistory().length ? "最近研究" : "研究模板"}</h2>
+              <button type="button" onClick={() => setState("view", "activity")}>
+                查看全部 <Icon name="arrow-right" size="small" />
+              </button>
+            </div>
+            <div class="qc-recent-list">
+              <For each={recent()}>
+                {(item, index) => (
+                  <button
+                    type="button"
+                    class="qc-recent-row"
+                    onClick={() => (item.template ? focusComposer(item.title) : setState("view", "activity"))}
+                  >
+                    <span class="qc-recent-index">{String(index() + 1).padStart(2, "0")}</span>
+                    <span class="qc-recent-copy">
+                      <strong>{item.title}</strong>
+                      <small>{item.meta}</small>
+                    </span>
+                    <span class="qc-recent-status">{item.status}</span>
+                    <time>{item.time}</time>
+                    <Icon name="arrow-right" size="small" />
+                  </button>
+                )}
+              </For>
+            </div>
+          </section>
+
+          <Show when={state.view !== "compose"}>
+            <section class="qc-detail-panel" aria-label="QuantCode 详情">
+              <div class="qc-detail-header">
+                <div>
+                  <span>QUANTCODE / {state.view.toUpperCase()}</span>
+                  <h2>
+                    {state.view === "activity"
+                      ? "执行记录"
+                      : state.view === "gate"
+                        ? "HumanGate"
+                        : state.view === "memory"
+                          ? "Memory"
+                          : "工作区设置"}
+                  </h2>
+                </div>
+                <button type="button" aria-label="关闭详情" onClick={() => setState("view", "compose")}>
+                  <Icon name="close" size="normal" />
+                </button>
+              </div>
+              <Switch>
+                <Match when={state.view === "activity"}>
+                  <ActivityPanel onUseTask={focusComposer} />
+                </Match>
+                <Match when={state.view === "gate"}>
+                  <GatePanel />
+                </Match>
+                <Match when={state.view === "memory"}>
+                  <MemoryPanel />
+                </Match>
+                <Match when={state.view === "settings"}>
+                  <SettingsPanel skill={state.skill} onSkillChange={(skill) => setState("skill", skill)} />
+                </Match>
+              </Switch>
+            </section>
+          </Show>
+        </div>
+      </main>
     </div>
   )
 }

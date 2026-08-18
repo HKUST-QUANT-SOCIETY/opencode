@@ -2,12 +2,13 @@
   "name": "@opencode-ai/desktop",
   "private": true,
   "version": "1.17.11",
+  "description": "QuantCode multi-agent quantitative research desktop workspace",
   "type": "module",
   "license": "MIT",
-  "homepage": "https://opencode.ai",
+  "homepage": "https://github.com/HKUST-QUANT-SOCIETY/quantcode",
   "author": {
-    "name": "OpenCode",
-    "email": "hello@opencode.ai"
+    "name": "HKUST Quant Society",
+    "email": "quant@ust.hk"
   },
   "scripts": {
     "typecheck": "tsgo -b",

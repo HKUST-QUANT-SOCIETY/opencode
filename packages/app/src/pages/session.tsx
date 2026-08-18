@@ -1287,18 +1287,18 @@ export default function Page() {
   createEffect(() => {
     try {
       const parts = sync().data.part
-      for (const [messageId, partList] of Object.entries(parts)) {
+      for (const partList of Object.values(parts)) {
         if (!partList) continue
         for (const part of partList) {
           if (!part) continue
           if (part.type !== "tool") continue
 
           const state = part.state
-          const toolName = (part as any).tool ?? (part as any).toolName ?? (part as any).name ?? ""
+          const toolName = part.tool
           if (!/run_agent/i.test(toolName)) continue
 
-          if (state?.status === "running" || state?.status === "pending") continue
-          const outputStr = state?.output as string | undefined
+          if (state.status !== "completed") continue
+          const outputStr = state.output
           if (!outputStr) continue
 
           const id = part.id
@@ -1306,15 +1306,21 @@ export default function Page() {
           qcSeen.add(id)
 
           try {
-            let parsed = JSON.parse(state.output)
+            let parsed = JSON.parse(outputStr)
             // Handle MCP double-wrapped JSON: {"content":[{"type":"text","text":"<json_string>"}]}
             if (!parsed.execution_trace && !parsed.status && parsed.content?.[0]?.text) {
-              try { parsed = JSON.parse(parsed.content[0].text) } catch { /* not double-wrapped */ }
+              try {
+                parsed = JSON.parse(parsed.content[0].text)
+              } catch {
+                /* not double-wrapped */
+              }
             }
             if (parsed && (parsed.execution_trace || parsed.status)) {
               updateQuantCodeTrace(parsed)
             }
-          } catch { /* JSON parse error — skip */ }
+          } catch {
+            /* JSON parse error — skip */
+          }
         }
       }
     } catch {

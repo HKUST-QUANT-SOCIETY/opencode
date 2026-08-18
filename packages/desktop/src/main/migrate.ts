@@ -26,9 +26,10 @@ const TAURI_APP_IDS: Record<string, string> = {
   dev: "ai.opencode.desktop.dev",
   beta: "ai.opencode.desktop.beta",
   prod: "ai.opencode.desktop",
+  quantcode: "org.hkust.quantcode",
 }
 function tauriAppId() {
-  return app.isPackaged ? TAURI_APP_IDS[CHANNEL] : "ai.opencode.desktop.dev"
+  return TAURI_APP_IDS[CHANNEL]
 }
 
 // Migrate a single Tauri .dat file into the corresponding electron-store.

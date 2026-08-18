@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process"
+import { existsSync } from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
@@ -8,6 +9,7 @@ import type { Configuration } from "electron-builder"
 const execFileAsync = promisify(execFile)
 const packageDir = path.dirname(fileURLToPath(import.meta.url))
 const rootDir = path.resolve(packageDir, "../..")
+const nativeDir = path.join(packageDir, "native")
 const signScript = path.join(rootDir, "script", "sign-windows.ps1")
 // The Electron 42 packaging update briefly installed Linux launchers/icons under
 // "opencode-desktop". Keep that hidden desktop entry around so existing GNOME/KDE
@@ -18,6 +20,9 @@ const legacyDesktopEntryFpm = `${legacyDesktopEntry}=/usr/share/applications/ope
 async function signWindows(configuration: { path: string }) {
   if (process.platform !== "win32") return
   if (process.env.GITHUB_ACTIONS !== "true") return
+  if (!process.env.AZURE_CLIENT_ID || !process.env.AZURE_TENANT_ID || !process.env.AZURE_SUBSCRIPTION_ID) return
+  if (!process.env.AZURE_TRUSTED_SIGNING_ACCOUNT_NAME || !process.env.AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE) return
+  if (!process.env.AZURE_TRUSTED_SIGNING_ENDPOINT) return
 
   await execFileAsync(
     "pwsh",
@@ -28,7 +33,7 @@ async function signWindows(configuration: { path: string }) {
 
 const channel = (() => {
   const raw = process.env.OPENCODE_CHANNEL
-  if (raw === "dev" || raw === "beta" || raw === "prod") return raw
+  if (raw === "dev" || raw === "beta" || raw === "prod" || raw === "quantcode") return raw
   return "dev"
 })()
 
@@ -36,10 +41,12 @@ const APP_IDS = {
   dev: "ai.opencode.desktop.dev",
   beta: "ai.opencode.desktop.beta",
   prod: "ai.opencode.desktop",
+  quantcode: "org.hkust.quantcode",
 } as const
 
 const getBase = (appId: string): Configuration => ({
-  artifactName: "opencode-desktop-${os}-${arch}.${ext}",
+  artifactName:
+    channel === "quantcode" ? "quantcode-${version}-${os}-${arch}.${ext}" : "opencode-desktop-${os}-${arch}.${ext}",
   directories: {
     output: "dist",
     buildResources: "resources",
@@ -53,13 +60,15 @@ const getBase = (appId: string): Configuration => ({
     desktopName: `${appId}.desktop`,
   },
   files: ["out/**/*", "resources/**/*"],
-  extraResources: [
-    {
-      from: "native/",
-      to: "native/",
-      filter: ["index.js", "index.d.ts", "build/Release/mac_window.node", "swift-build/**"],
-    },
-  ],
+  extraResources: existsSync(nativeDir)
+    ? [
+        {
+          from: "native/",
+          to: "native/",
+          filter: ["index.js", "index.d.ts", "build/Release/mac_window.node", "swift-build/**"],
+        },
+      ]
+    : [],
   mac: {
     category: "public.app-category.developer-tools",
     icon: `resources/icons/icon.icns`,
@@ -67,7 +76,15 @@ const getBase = (appId: string): Configuration => ({
     gatekeeperAssess: false,
     entitlements: "resources/entitlements.plist",
     entitlementsInherit: "resources/entitlements.plist",
-    notarize: true,
+    notarize:
+      channel === "quantcode"
+        ? Boolean(
+            process.env.APPLE_API_KEY &&
+              existsSync(process.env.APPLE_API_KEY) &&
+              process.env.APPLE_API_KEY_ID &&
+              process.env.APPLE_API_ISSUER,
+          )
+        : true,
     target: ["dmg", "zip"],
   },
   dmg: {
@@ -138,6 +155,26 @@ function getConfig() {
         publish: { provider: "github", owner: "anomalyco", repo: "opencode", channel: "latest" },
         deb: { fpm: [legacyDesktopEntryFpm] },
         rpm: { packageName: "opencode", fpm: [legacyDesktopEntryFpm] },
+      }
+    }
+    case "quantcode": {
+      return {
+        ...base,
+        appId,
+        productName: "QuantCode",
+        protocols: { name: "QuantCode", schemes: ["quantcode"] },
+        publish: {
+          provider: "github",
+          owner: "HKUST-QUANT-SOCIETY",
+          repo: "quantcode",
+          channel: "latest",
+        },
+        linux: {
+          ...base.linux,
+          executableName: "quantcode",
+        },
+        deb: { packageName: "quantcode" },
+        rpm: { packageName: "quantcode" },
       }
     }
   }
