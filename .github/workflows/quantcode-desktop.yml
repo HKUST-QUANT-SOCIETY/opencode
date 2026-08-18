@@ -117,6 +117,10 @@ jobs:
       OPENCODE_CHANNEL: quantcode
       OPENCODE_VERSION: ${{ needs.version.outputs.version }}
       RUST_TARGET: ${{ matrix.target }}
+      # Keep all platform builds reproducible and independent of a live
+      # models.dev request. Update the tracked snapshot deliberately when the
+      # supported provider catalog changes.
+      MODELS_DEV_API_JSON: ${{ github.workspace }}/packages/opencode/test/tool/fixtures/models-api.json
       # Only non-publishing artifact runs may opt into the unsigned updater
       # path. Signed credentials still take precedence in the resolver.
       QUANTCODE_UNSIGNED_BUILD: ${{ needs.version.outputs.publish != 'true' }}
