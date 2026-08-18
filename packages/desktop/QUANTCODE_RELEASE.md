@@ -10,6 +10,8 @@ Linux packaging remains configured in electron-builder but is deliberately exclu
 
 The desktop source lives in the `HKUST-QUANT-SOCIETY/opencode` fork, while public QuantCode releases live in `HKUST-QUANT-SOCIETY/quantcode`. Add a fine-grained `QUANTCODE_RELEASE_TOKEN` secret to the fork with `Contents: write` access to the QuantCode repository. Artifact-only runs do not need this token.
 
+The release workflow embeds the tracked `packages/opencode/test/tool/fixtures/models-api.json` snapshot through `MODELS_DEV_API_JSON`. This keeps all three platform jobs reproducible when `models.dev` is unavailable. Refresh that snapshot deliberately when the supported provider catalog changes, review the resulting diff, and commit it with the release workflow change.
+
 ## Release signing
 
 Unsigned installers are still produced when signing secrets are absent, which keeps development builds testable. Non-publishing artifact runs explicitly set `QUANTCODE_UNSIGNED_BUILD=true`; publishing runs require signed credentials and the workflow fails closed when any required secret is missing. A public release should configure these repository secrets before enabling `publish`:
