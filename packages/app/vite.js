@@ -11,6 +11,7 @@ const channel = (() => {
   if (process.env.OPENCODE_CHANNEL === "latest") return "prod"
   return "dev"
 })()
+const productName = channel === "quantcode" ? "QuantCode" : "OpenCode"
 
 /**
  * @type {import("vite").PluginOption}
@@ -37,10 +38,12 @@ export default [
   {
     name: "opencode-desktop:theme-preload",
     transformIndexHtml(html) {
-      return html.replace(
-        '<script id="oc-theme-preload-script" src="/oc-theme-preload.js"></script>',
-        `<script id="oc-theme-preload-script">${readFileSync(theme, "utf8")}</script>`,
-      )
+      return html
+        .replace("<title>OpenCode</title>", `<title>${productName}</title>`)
+        .replace(
+          '<script id="oc-theme-preload-script" src="/oc-theme-preload.js"></script>',
+          `<script id="oc-theme-preload-script">${readFileSync(theme, "utf8")}</script>`,
+        )
     },
   },
   tailwindcss(),

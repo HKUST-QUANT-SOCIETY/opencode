@@ -1,3 +1,5 @@
+import { PRODUCT_FEEDBACK_URL, PRODUCT_NAME, isQuantCode } from "./brand"
+
 export type DesktopMenuPlatform = "macos" | "windows"
 
 export type DesktopMenuAction =
@@ -72,7 +74,7 @@ export type DesktopMenu = {
 export const DESKTOP_MENU: DesktopMenu[] = [
   {
     id: "app",
-    label: "OpenCode",
+    label: PRODUCT_NAME,
     platforms: ["macos"],
     items: [
       { type: "item", role: "about" },
@@ -200,19 +202,31 @@ export const DESKTOP_MENU: DesktopMenu[] = [
     id: "help",
     label: "Help",
     items: [
-      { type: "item", label: "OpenCode Documentation", href: "https://opencode.ai/docs" },
-      { type: "item", label: "Support Forum", href: "https://discord.com/invite/opencode" },
+      {
+        type: "item",
+        label: `${PRODUCT_NAME} Documentation`,
+        href: isQuantCode ? "https://github.com/HKUST-QUANT-SOCIETY/quantcode" : "https://opencode.ai/docs",
+      },
+      {
+        type: "item",
+        label: "Support Forum",
+        href: isQuantCode ? PRODUCT_FEEDBACK_URL : "https://discord.com/invite/opencode",
+      },
       { type: "item", label: "Export Logs...", command: "logs.export" },
       { type: "separator" },
       {
         type: "item",
         label: "Share Feedback",
-        href: "https://github.com/anomalyco/opencode/issues/new?template=feature_request.yml",
+        href: isQuantCode
+          ? PRODUCT_FEEDBACK_URL
+          : "https://github.com/anomalyco/opencode/issues/new?template=feature_request.yml",
       },
       {
         type: "item",
         label: "Report a Bug",
-        href: "https://github.com/anomalyco/opencode/issues/new?template=bug_report.yml",
+        href: isQuantCode
+          ? PRODUCT_FEEDBACK_URL
+          : "https://github.com/anomalyco/opencode/issues/new?template=bug_report.yml",
       },
     ],
   },

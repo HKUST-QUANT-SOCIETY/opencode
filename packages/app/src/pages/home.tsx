@@ -67,6 +67,7 @@ import { useMarked } from "@opencode-ai/ui/context/marked"
 import { preloadMarkdown } from "@opencode-ai/session-ui/markdown-cache"
 import { archiveHomeSession } from "./home-session-archive"
 import { showToast } from "@/utils/toast"
+import { PRODUCT_FEEDBACK_URL, PRODUCT_ICON, PRODUCT_NAME, isQuantCode } from "@/brand"
 
 const HOME_SESSION_LIMIT = 64
 const HOME_SESSION_HEADER_STICKY_TOP = 12
@@ -536,7 +537,7 @@ export function NewHome() {
           clearNotifications={clearNotifications}
           unseenCount={unseenCount}
           openSettings={openSettings}
-          openHelp={() => platform.openLink("https://opencode.ai/desktop-feedback")}
+          openHelp={() => platform.openLink(PRODUCT_FEEDBACK_URL)}
           language={language}
         />
 
@@ -630,7 +631,7 @@ export function NewHome() {
         <HomeUtilityNav
           class="flex lg:hidden"
           openSettings={openSettings}
-          openHelp={() => platform.openLink("https://opencode.ai/desktop-feedback")}
+          openHelp={() => platform.openLink(PRODUCT_FEEDBACK_URL)}
           language={language}
         />
       </div>
@@ -1478,7 +1479,12 @@ export function LegacyHome() {
 
   return (
     <div class="mx-auto mt-55 w-full md:w-auto px-4">
-      <Logo class="md:w-xl opacity-12" />
+      <Show when={isQuantCode} fallback={<Logo class="md:w-xl opacity-12" />}>
+        <div class="flex items-center justify-center gap-3 text-text-strong">
+          <img src={PRODUCT_ICON} alt={PRODUCT_NAME} class="h-12 w-12 rounded-[12px]" />
+          <span class="text-3xl font-semibold tracking-tight">{PRODUCT_NAME}</span>
+        </div>
+      </Show>
       <Button
         size="large"
         variant="ghost"

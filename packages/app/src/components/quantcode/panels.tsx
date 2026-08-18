@@ -601,7 +601,7 @@ export function QuantCodePanel(props: { onClose?: () => void } = {}): JSX.Elemen
             type="button"
             class="qc-rail-button"
             aria-label="关闭 QuantCode 工作区"
-            title="返回 OpenCode"
+            title="返回 QuantCode"
             onClick={props.onClose}
           >
             <Icon name="close" size="normal" />
