@@ -143,12 +143,6 @@ jobs:
         with:
           node-version: "24"
 
-      - name: Install Linux packaging tools
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends rpm
-
       - name: Import Apple signing certificate
         if: runner.os == 'macOS' && env.APPLE_CERTIFICATE != ''
         uses: apple-actions/import-codesign-certs@8f3fb608891dd2244cdab3d69cd68c0d37a7fe93 # v2.0.0
@@ -220,9 +214,6 @@ jobs:
             packages/desktop/dist/*.zip
             packages/desktop/dist/*.exe
             packages/desktop/dist/*.blockmap
-            packages/desktop/dist/*.AppImage
-            packages/desktop/dist/*.deb
-            packages/desktop/dist/*.rpm
 
       # Keep each target's updater metadata in its own artifact. In particular,
       # both macOS jobs emit `latest-mac.yml`; flattening those files into one
