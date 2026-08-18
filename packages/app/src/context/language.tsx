@@ -5,6 +5,7 @@ import { createSimpleContext } from "@opencode-ai/ui/context"
 import { Persist, persisted } from "@/utils/persist"
 import { dict as en } from "@/i18n/en"
 import { dict as uiEn } from "@opencode-ai/ui/i18n/en"
+import { isQuantCode } from "@/brand"
 
 export type Locale =
   | "en"
@@ -222,7 +223,7 @@ export const { use: useLanguage, provider: LanguageProvider } = createSimpleCont
 
     const t = (key: keyof Dictionary, params?: Record<string, string | number | boolean>) => {
       const value = translate(key, params)
-      return import.meta.env.VITE_OPENCODE_CHANNEL === "quantcode" ? value.replaceAll("OpenCode", "QuantCode") : value
+      return isQuantCode ? value.replaceAll("OpenCode", "QuantCode") : value
     }
 
     const label = (value: Locale) => t(LABEL_KEY[value])

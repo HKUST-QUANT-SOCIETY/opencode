@@ -13,6 +13,37 @@ describe("QuantCode brand", () => {
     })
   })
 
+  test("defaults missing channel metadata to QuantCode", () => {
+    expect(resolveBrand(undefined)).toMatchObject({
+      isQuantCode: true,
+      name: "QuantCode",
+      feedbackLabel: "在 GitHub 上",
+      feedbackIcon: "github",
+    })
+  })
+
+  test("uses QuantCode document branding when no channel is supplied", async () => {
+    const previous = process.env.OPENCODE_CHANNEL
+    delete process.env.OPENCODE_CHANNEL
+    const plugins = (await import("../vite.js" + "?quantcode-default-brand-test")).default as unknown[]
+    if (previous === undefined) delete process.env.OPENCODE_CHANNEL
+    if (previous !== undefined) process.env.OPENCODE_CHANNEL = previous
+
+    const plugin = plugins.find(
+      (item) => item && typeof item === "object" && "name" in item && item.name === "opencode-desktop:theme-preload",
+    )
+    if (
+      !plugin ||
+      typeof plugin !== "object" ||
+      !("transformIndexHtml" in plugin) ||
+      typeof plugin.transformIndexHtml !== "function"
+    ) {
+      throw new Error("QuantCode default title transform is missing")
+    }
+
+    expect(plugin.transformIndexHtml("<title>OpenCode</title>")).toContain("<title>QuantCode</title>")
+  })
+
   test("rewrites document branding for the QuantCode channel", async () => {
     const previous = process.env.OPENCODE_CHANNEL
     process.env.OPENCODE_CHANNEL = "quantcode"

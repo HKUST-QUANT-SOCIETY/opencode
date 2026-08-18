@@ -1,5 +1,7 @@
 export function resolveBrand(channel: ImportMetaEnv["VITE_OPENCODE_CHANNEL"]) {
-  const quantcode = channel === "quantcode"
+  // Vite normally injects the channel. Treat an omitted channel as the
+  // QuantCode default so an unqualified dev server cannot show OpenCode UI.
+  const quantcode = channel == null || channel === "quantcode"
   return {
     isQuantCode: quantcode,
     name: quantcode ? "QuantCode" : "OpenCode",

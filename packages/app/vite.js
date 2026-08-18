@@ -9,7 +9,10 @@ const channel = (() => {
   const raw = process.env.OPENCODE_CHANNEL
   if (raw === "dev" || raw === "beta" || raw === "prod" || raw === "quantcode") return raw
   if (process.env.OPENCODE_CHANNEL === "latest") return "prod"
-  return "dev"
+  // This fork is distributed as QuantCode. Keep the upstream channels
+  // available when explicitly requested, but make an unqualified local
+  // frontend start match the product users are actually running.
+  return "quantcode"
 })()
 const productName = channel === "quantcode" ? "QuantCode" : "OpenCode"
 const productIcon = channel === "quantcode" ? "/quantcode-icon.png" : "/favicon-96x96-v3.png"
