@@ -277,7 +277,6 @@ jobs:
               suffix="linux-x86_64"
               expected=(
                 "dist/quantcode-$OPENCODE_VERSION-$suffix.AppImage"
-                "dist/quantcode-$OPENCODE_VERSION-$suffix.AppImage.blockmap"
                 "dist/quantcode-$OPENCODE_VERSION-linux-amd64.deb"
                 "dist/quantcode-$OPENCODE_VERSION-$suffix.rpm"
                 "dist/latest-linux.yml"
@@ -287,7 +286,6 @@ jobs:
               suffix="linux-arm64"
               expected=(
                 "dist/quantcode-$OPENCODE_VERSION-$suffix.AppImage"
-                "dist/quantcode-$OPENCODE_VERSION-$suffix.AppImage.blockmap"
                 "dist/quantcode-$OPENCODE_VERSION-linux-arm64.deb"
                 "dist/quantcode-$OPENCODE_VERSION-linux-aarch64.rpm"
                 "dist/latest-linux-arm64.yml"

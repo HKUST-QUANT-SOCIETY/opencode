@@ -273,7 +273,6 @@ test("validates Linux assets while retaining AppImage-only updater metadata", as
   const finalizedRoot = path.join(root, "finalized")
   const files = [
     "quantcode-1.2.3-linux-x86_64.AppImage",
-    "quantcode-1.2.3-linux-x86_64.AppImage.blockmap",
     "quantcode-1.2.3-linux-amd64.deb",
     "quantcode-1.2.3-linux-x86_64.rpm",
   ].map((filename) => ({ filename, content: `fixture:${filename}` }))
@@ -331,11 +330,10 @@ test("fails closed when a Linux deb or rpm asset is missing", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "quantcode-linux-release-assets-missing-"))
   const metadataRoot = path.join(root, "metadata")
   const assetRoot = path.join(root, "assets")
-  const files = [
-    "quantcode-1.2.3-linux-x86_64.AppImage",
-    "quantcode-1.2.3-linux-x86_64.AppImage.blockmap",
-    "quantcode-1.2.3-linux-amd64.deb",
-  ].map((filename) => ({ filename, content: `fixture:${filename}` }))
+  const files = ["quantcode-1.2.3-linux-x86_64.AppImage", "quantcode-1.2.3-linux-amd64.deb"].map((filename) => ({
+    filename,
+    content: `fixture:${filename}`,
+  }))
   const missingRpm = {
     filename: "quantcode-1.2.3-linux-x86_64.rpm",
     content: "fixture:quantcode-1.2.3-linux-x86_64.rpm",

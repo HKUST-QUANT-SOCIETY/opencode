@@ -127,22 +127,12 @@ const requiredTargetSpecs: Record<string, RequiredTarget> = {
     // electron-updater uses AppImage metadata. DEB/RPM remain manually
     // installable release assets and are validated separately below.
     updaterSuffixes: ["-linux-x86_64.AppImage"],
-    assetSuffixes: [
-      "-linux-x86_64.AppImage",
-      "-linux-x86_64.AppImage.blockmap",
-      "-linux-amd64.deb",
-      "-linux-x86_64.rpm",
-    ],
+    assetSuffixes: ["-linux-x86_64.AppImage", "-linux-amd64.deb", "-linux-x86_64.rpm"],
   },
   "aarch64-unknown-linux-gnu": {
     metadata: "latest-linux-arm64.yml",
     updaterSuffixes: ["-linux-arm64.AppImage"],
-    assetSuffixes: [
-      "-linux-arm64.AppImage",
-      "-linux-arm64.AppImage.blockmap",
-      "-linux-arm64.deb",
-      "-linux-aarch64.rpm",
-    ],
+    assetSuffixes: ["-linux-arm64.AppImage", "-linux-arm64.deb", "-linux-aarch64.rpm"],
   },
 }
 
