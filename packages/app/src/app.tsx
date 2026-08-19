@@ -41,7 +41,7 @@ import { ModelsProvider } from "@/context/models"
 import { NotificationProvider, useNotification } from "@/context/notification"
 import { PermissionProvider } from "@/context/permission"
 import { PromptProvider } from "@/context/prompt"
-import { ServerConnection, ServerProvider, serverName, useServer } from "@/context/server"
+import { resolveServerKey, ServerConnection, ServerProvider, serverName, useServer } from "@/context/server"
 import { SettingsProvider, useSettings } from "@/context/settings"
 import { TerminalProvider } from "@/context/terminal"
 import { TabsProvider, useTabs, type DraftTab } from "@/context/tabs"
@@ -106,33 +106,33 @@ const SessionRoute = () => {
 const TargetSessionRoute = () => {
   const params = useParams<{ serverKey: string; id: string }>()
   const global = useGlobal()
+  const requestedServer = createMemo(() => requireServerKey(params.serverKey))
+  const serverKey = createMemo(() => resolveServerKey(requestedServer(), global.servers.list()))
   const conn = createMemo(() => {
-    const key = requireServerKey(params.serverKey)
-    return global.servers.list().find((item) => ServerConnection.key(item) === key)
+    return global.servers.list().find((item) => ServerConnection.key(item) === serverKey())
   })
 
   return (
-    <Show when={requireServerKey(params.serverKey)} keyed>
+    <Show when={serverKey()} keyed>
       <ServerSDKProvider server={conn}>
         <ServerSyncProvider server={conn}>
-          <ResolvedTargetSessionRoute />
+          <ResolvedTargetSessionRoute serverKey={serverKey} />
         </ServerSyncProvider>
       </ServerSDKProvider>
     </Show>
   )
 }
 
-function ResolvedTargetSessionRoute() {
+function ResolvedTargetSessionRoute(props: { serverKey: () => ServerConnection.Key }) {
   const params = useParams<{ serverKey: string; id: string }>()
   const settings = useSettings()
   const tabs = useTabs()
   const sync = useServerSync()
-  const serverKey = createMemo(() => requireServerKey(params.serverKey))
   const cached = createMemo(() => sync().session.lineage.peek(params.id))
   const [resolved] = createResource(
     () => {
       if (cached()) return
-      return { id: params.id, server: serverKey(), sync: sync() }
+      return { id: params.id, server: props.serverKey(), sync: sync() }
     },
     ({ id, server, sync }) =>
       sync.session.lineage.resolve(id).catch((error) => {
@@ -148,7 +148,7 @@ function ResolvedTargetSessionRoute() {
     const session = current()
     if (!session) return
     tabs.addSessionTab({
-      server: serverKey(),
+      server: props.serverKey(),
       sessionId: session.root.id,
     })
   })
@@ -162,7 +162,7 @@ function ResolvedTargetSessionRoute() {
             fallback={<Navigate href={legacySessionHref(directory()!, params.id)} />}
           >
             <SDKProvider directory={targetDirectory}>
-              <DirectoryDataProvider directory={targetDirectory} server={serverKey}>
+              <DirectoryDataProvider directory={targetDirectory} server={props.serverKey}>
                 <TargetSessionPage />
               </DirectoryDataProvider>
             </SDKProvider>

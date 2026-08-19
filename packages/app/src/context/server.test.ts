@@ -6,6 +6,7 @@ import {
   migrateCanonicalLocalServerState,
   nextServerAfterRemoval,
   resolveServerList,
+  resolveServerKey,
   ServerConnection,
 } from "./server"
 import { ServerScope } from "@/utils/server-scope"
@@ -93,6 +94,42 @@ test("active server removal falls back across built-in and persisted servers", (
       ServerConnection.Key.make("sidecar"),
     ),
   ).toBe(ServerConnection.Key.make("sidecar"))
+})
+
+describe("resolveServerKey", () => {
+  test("adopts the current loopback alias for a persisted default", () => {
+    const current = {
+      type: "http",
+      http: { url: "http://127.0.0.1:4096" },
+    } as const
+
+    expect(resolveServerKey(ServerConnection.Key.make("http://localhost:4096"), [current])).toBe(
+      ServerConnection.Key.make("http://127.0.0.1:4096"),
+    )
+  })
+
+  test("matches a loopback alias to the built-in sidecar without changing its key", () => {
+    const sidecar = {
+      type: "sidecar",
+      variant: "base",
+      http: { url: "http://127.0.0.1:4096" },
+    } as const
+
+    expect(resolveServerKey(ServerConnection.Key.make("http://localhost:4096"), [sidecar])).toBe(
+      ServerConnection.Key.make("sidecar"),
+    )
+  })
+
+  test("does not merge different ports or remote hosts", () => {
+    const servers = [
+      { type: "http", http: { url: "http://127.0.0.1:4097" } },
+      { type: "http", http: { url: "https://example.test:4096" } },
+    ] as const
+
+    expect(resolveServerKey(ServerConnection.Key.make("http://localhost:4096"), [...servers])).toBe(
+      ServerConnection.Key.make("http://localhost:4096"),
+    )
+  })
 })
 
 describe("createServerProjects", () => {
