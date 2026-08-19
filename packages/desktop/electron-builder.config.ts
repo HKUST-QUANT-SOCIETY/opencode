@@ -39,6 +39,11 @@ const channel = (() => {
   return "quantcode"
 })()
 const updateMode = channel === "quantcode" ? resolveQuantCodeUpdateMode() : "signed"
+// Linux updater feeds are protected by electron-builder's SHA-512 metadata,
+// not by a platform code signature. Keep forceCodeSigning limited to targets
+// that actually support the signing hooks used by the release workflow.
+const forceCodeSigning =
+  channel === "quantcode" && updateMode === "signed" && (process.platform === "darwin" || process.platform === "win32")
 
 const APP_IDS = {
   dev: "ai.opencode.desktop.dev",
@@ -48,7 +53,7 @@ const APP_IDS = {
 } as const
 
 const getBase = (appId: string): Configuration => ({
-  forceCodeSigning: channel === "quantcode" && updateMode === "signed",
+  forceCodeSigning,
   artifactName:
     channel === "quantcode" ? "quantcode-${version}-${os}-${arch}.${ext}" : "opencode-desktop-${os}-${arch}.${ext}",
   directories: {

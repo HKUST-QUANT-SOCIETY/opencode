@@ -126,9 +126,12 @@ jobs:
             platform: --win --x64
             install: --os=win32 --cpu=x64
             signer: windows
-          # Linux packaging is intentionally not part of the current release
-          # matrix. Keep the electron-builder Linux target configured for a
-          # later, separately validated release.
+          - name: Linux x64
+            runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            platform: --linux --x64
+            install: --os=linux --cpu=x64
+            signer: linux
 
     env:
       OPENCODE_CHANNEL: quantcode
@@ -165,6 +168,13 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "24"
+
+      - name: Install Linux packaging tools
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends fakeroot rpm
 
       - name: Import Apple signing certificate
         if: runner.os == 'macOS' && env.APPLE_CERTIFICATE != ''
@@ -214,6 +224,13 @@ jobs:
         working-directory: packages/desktop
         shell: bash
         run: |
+          # electron-builder currently emits latest-linux.yml for both Linux
+          # architectures. Keep the ARM feed distinct so electron-updater can
+          # select it by architecture in the merged GitHub Release.
+          if [[ "$RUST_TARGET" == "aarch64-unknown-linux-gnu" && -s dist/latest-linux.yml && ! -e dist/latest-linux-arm64.yml ]]; then
+            mv dist/latest-linux.yml dist/latest-linux-arm64.yml
+          fi
+
           case "$RUST_TARGET" in
             aarch64-apple-darwin)
               suffix="mac-arm64"
@@ -241,6 +258,28 @@ jobs:
                 "dist/quantcode-$OPENCODE_VERSION-$suffix.exe"
                 "dist/quantcode-$OPENCODE_VERSION-$suffix.exe.blockmap"
                 "dist/latest.yml"
+              )
+              ;;
+            x86_64-unknown-linux-gnu)
+              # electron-builder uses Linux-specific architecture spellings:
+              # x86_64 for AppImage/RPM and amd64 for Debian.
+              suffix="linux-x86_64"
+              expected=(
+                "dist/quantcode-$OPENCODE_VERSION-$suffix.AppImage"
+                "dist/quantcode-$OPENCODE_VERSION-$suffix.AppImage.blockmap"
+                "dist/quantcode-$OPENCODE_VERSION-linux-amd64.deb"
+                "dist/quantcode-$OPENCODE_VERSION-$suffix.rpm"
+                "dist/latest-linux.yml"
+              )
+              ;;
+            aarch64-unknown-linux-gnu)
+              suffix="linux-arm64"
+              expected=(
+                "dist/quantcode-$OPENCODE_VERSION-$suffix.AppImage"
+                "dist/quantcode-$OPENCODE_VERSION-$suffix.AppImage.blockmap"
+                "dist/quantcode-$OPENCODE_VERSION-linux-arm64.deb"
+                "dist/quantcode-$OPENCODE_VERSION-linux-aarch64.rpm"
+                "dist/latest-linux-arm64.yml"
               )
               ;;
             *)
@@ -321,6 +360,9 @@ jobs:
             packages/desktop/dist/*.dmg
             packages/desktop/dist/*.zip
             packages/desktop/dist/*.exe
+            packages/desktop/dist/*.AppImage
+            packages/desktop/dist/*.deb
+            packages/desktop/dist/*.rpm
             packages/desktop/dist/*.blockmap
 
       # Keep each target's updater metadata in its own artifact. In particular,
@@ -370,7 +412,7 @@ jobs:
           FINALIZED_YML_DIR: release-finalized
           UPLOAD_RELEASE_METADATA: "false"
           OPENCODE_VERSION: ${{ needs.version.outputs.version }}
-          REQUIRED_TARGETS: aarch64-apple-darwin,x86_64-apple-darwin,x86_64-pc-windows-msvc
+          REQUIRED_TARGETS: aarch64-apple-darwin,x86_64-apple-darwin,x86_64-pc-windows-msvc,x86_64-unknown-linux-gnu
         run: bun packages/desktop/scripts/finalize-latest-yml.ts
 
       - name: Stage draft GitHub Release

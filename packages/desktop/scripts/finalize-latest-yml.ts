@@ -26,12 +26,16 @@ type LatestYml = {
   version: string
   files: FileEntry[]
   releaseDate: string
+  path?: string
+  sha512?: string
 }
 
 function parse(content: string): LatestYml {
   const lines = content.split("\n")
   let version = ""
   let releaseDate = ""
+  let path = ""
+  let sha512 = ""
   const files: FileEntry[] = []
   let current: Partial<FileEntry> | undefined
 
@@ -45,7 +49,13 @@ function parse(content: string): LatestYml {
     if (line.startsWith("version:")) version = line.slice("version:".length).trim()
     else if (line.startsWith("releaseDate:"))
       releaseDate = line.slice("releaseDate:".length).trim().replace(/^'|'$/g, "")
-    else if (line.trim().startsWith("- url:")) {
+    else if (line.startsWith("path:")) {
+      flush()
+      path = line.slice("path:".length).trim()
+    } else if (line.startsWith("sha512:")) {
+      flush()
+      sha512 = line.slice("sha512:".length).trim()
+    } else if (line.trim().startsWith("- url:")) {
       flush()
       current = { url: line.trim().slice("- url:".length).trim() }
     } else if (indented && current && line.trim().startsWith("sha512:"))
@@ -58,10 +68,16 @@ function parse(content: string): LatestYml {
   }
   flush()
 
-  return { version, files, releaseDate }
+  return {
+    version,
+    files,
+    releaseDate,
+    ...(path ? { path } : {}),
+    ...(sha512 ? { sha512 } : {}),
+  }
 }
 
-function serialize(data: LatestYml) {
+function serialize(data: LatestYml, includeTopLevel = false) {
   const lines = [`version: ${data.version}`, "files:"]
   for (const file of data.files) {
     lines.push(`  - url: ${file.url}`)
@@ -69,6 +85,11 @@ function serialize(data: LatestYml) {
     lines.push(`    size: ${file.size}`)
     if (file.blockMapSize) lines.push(`    blockMapSize: ${file.blockMapSize}`)
   }
+  // A single-architecture feed can retain electron-builder's legacy
+  // top-level path/sha512 fields. Never carry those fields into a merged feed:
+  // they would point at only one of the architectures.
+  if (includeTopLevel && data.path) lines.push(`path: ${data.path}`)
+  if (includeTopLevel && data.sha512) lines.push(`sha512: ${data.sha512}`)
   lines.push(`releaseDate: '${data.releaseDate}'`)
   return lines.join("\n") + "\n"
 }
@@ -100,6 +121,28 @@ const requiredTargetSpecs: Record<string, RequiredTarget> = {
     metadata: "latest.yml",
     updaterSuffixes: ["-win-x64.exe"],
     assetSuffixes: ["-win-x64.exe", "-win-x64.exe.blockmap"],
+  },
+  "x86_64-unknown-linux-gnu": {
+    metadata: "latest-linux.yml",
+    // electron-updater uses AppImage metadata. DEB/RPM remain manually
+    // installable release assets and are validated separately below.
+    updaterSuffixes: ["-linux-x86_64.AppImage"],
+    assetSuffixes: [
+      "-linux-x86_64.AppImage",
+      "-linux-x86_64.AppImage.blockmap",
+      "-linux-amd64.deb",
+      "-linux-x86_64.rpm",
+    ],
+  },
+  "aarch64-unknown-linux-gnu": {
+    metadata: "latest-linux-arm64.yml",
+    updaterSuffixes: ["-linux-arm64.AppImage"],
+    assetSuffixes: [
+      "-linux-arm64.AppImage",
+      "-linux-arm64.AppImage.blockmap",
+      "-linux-arm64.deb",
+      "-linux-aarch64.rpm",
+    ],
   },
 }
 
@@ -150,11 +193,11 @@ if (winX64 || winArm64) {
 
 // Linux x64: pass through
 const linuxX64 = await read("latest-yml-x86_64-unknown-linux-gnu", "latest-linux.yml")
-if (linuxX64) output["latest-linux.yml"] = serialize(linuxX64)
+if (linuxX64) output["latest-linux.yml"] = serialize(linuxX64, true)
 
 // Linux arm64: pass through
 const linuxArm64 = await read("latest-yml-aarch64-unknown-linux-gnu", "latest-linux-arm64.yml")
-if (linuxArm64) output["latest-linux-arm64.yml"] = serialize(linuxArm64)
+if (linuxArm64) output["latest-linux-arm64.yml"] = serialize(linuxArm64, true)
 
 // macOS: merge arm64 + x64 into single file
 const macX64 = await read("latest-yml-x86_64-apple-darwin", "latest-mac.yml")

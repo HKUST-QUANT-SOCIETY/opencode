@@ -38,17 +38,17 @@ test("merges macOS updater metadata and honors the release tag", async () => {
 
     await Bun.write(
       path.join(metadataRoot, "latest-yml-aarch64-apple-darwin", "latest-mac.yml"),
-      metadataFor([
+      `${metadataFor([
         { filename: "quantcode-1.2.3-mac-arm64.zip", content: "arm-zip" },
         { filename: "quantcode-1.2.3-mac-arm64.dmg", content: "arm-dmg" },
-      ]),
+      ])}path: quantcode-1.2.3-mac-arm64.zip\nsha512: legacy-arm\n`,
     )
     await Bun.write(
       path.join(metadataRoot, "latest-yml-x86_64-apple-darwin", "latest-mac.yml"),
-      metadataFor([
+      `${metadataFor([
         { filename: "quantcode-1.2.3-mac-x64.zip", content: "x64-zip" },
         { filename: "quantcode-1.2.3-mac-x64.dmg", content: "x64-dmg" },
-      ]),
+      ])}path: quantcode-1.2.3-mac-x64.zip\nsha512: legacy-x64\n`,
     )
     await Bun.write(
       path.join(metadataRoot, "latest-yml-x86_64-pc-windows-msvc", "latest.yml"),
@@ -99,6 +99,8 @@ test("merges macOS updater metadata and honors the release tag", async () => {
     expect(merged).toContain("quantcode-1.2.3-mac-arm64.dmg")
     expect(merged).toContain("quantcode-1.2.3-mac-x64.dmg")
     expect(merged.indexOf("mac-arm64")).toBeLessThan(merged.indexOf("mac-x64"))
+    expect(merged).not.toContain("\npath:")
+    expect(merged).not.toContain("\nsha512: legacy-")
 
     const windows = await Bun.file(path.join(captureDir, "latest.yml")).text()
     expect(windows).toContain("quantcode-1.2.3-win-x64.exe")
@@ -259,6 +261,113 @@ test("fails closed when a required installer blockmap is missing", async () => {
 
     expect(exitCode).not.toBe(0)
     expect(stderr).toContain("Missing release assets: quantcode-1.2.3-win-x64.exe.blockmap")
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test("validates Linux assets while retaining AppImage-only updater metadata", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "quantcode-linux-release-assets-"))
+  const metadataRoot = path.join(root, "metadata")
+  const assetRoot = path.join(root, "assets")
+  const finalizedRoot = path.join(root, "finalized")
+  const files = [
+    "quantcode-1.2.3-linux-x86_64.AppImage",
+    "quantcode-1.2.3-linux-x86_64.AppImage.blockmap",
+    "quantcode-1.2.3-linux-amd64.deb",
+    "quantcode-1.2.3-linux-x86_64.rpm",
+  ].map((filename) => ({ filename, content: `fixture:${filename}` }))
+
+  try {
+    await Promise.all([
+      mkdir(path.join(metadataRoot, "latest-yml-x86_64-unknown-linux-gnu"), { recursive: true }),
+      mkdir(assetRoot, { recursive: true }),
+    ])
+    await Promise.all(files.map((file) => Bun.write(path.join(assetRoot, file.filename), file.content)))
+    const appImage = files.find((file) => file.filename.endsWith(".AppImage"))!
+    await Bun.write(
+      path.join(metadataRoot, "latest-yml-x86_64-unknown-linux-gnu", "latest-linux.yml"),
+      `${metadataFor([appImage])}path: ${appImage.filename}\nsha512: legacy-linux-appimage\n`,
+    )
+
+    const child = Bun.spawn(["bun", script], {
+      env: {
+        ...process.env,
+        LATEST_YML_DIR: metadataRoot,
+        RELEASE_ASSET_DIR: assetRoot,
+        FINALIZED_YML_DIR: finalizedRoot,
+        UPLOAD_RELEASE_METADATA: "false",
+        OPENCODE_VERSION: "1.2.3",
+        REQUIRED_TARGETS: "x86_64-unknown-linux-gnu",
+      },
+      stdout: "pipe",
+      stderr: "pipe",
+    })
+    const [exitCode, stdout, stderr] = await Promise.all([
+      child.exited,
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+    ])
+
+    expect(exitCode).toBe(0)
+    expect(stderr).toBe("")
+    expect(stdout).toContain("finalized latest yml files")
+
+    const latestLinux = await Bun.file(path.join(finalizedRoot, "latest-linux.yml")).text()
+    expect(latestLinux).toContain("quantcode-1.2.3-linux-x86_64.AppImage")
+    expect(latestLinux).toContain("path: quantcode-1.2.3-linux-x86_64.AppImage")
+    expect(latestLinux).not.toContain("linux-amd64.deb")
+    expect(latestLinux).not.toContain("linux-x86_64.rpm")
+
+    const checksums = await Bun.file(path.join(finalizedRoot, "SHA256SUMS")).text()
+    for (const file of files) expect(checksums).toContain(`  ${file.filename}`)
+    expect(checksums).toContain("  latest-linux.yml")
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test("fails closed when a Linux deb or rpm asset is missing", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "quantcode-linux-release-assets-missing-"))
+  const metadataRoot = path.join(root, "metadata")
+  const assetRoot = path.join(root, "assets")
+  const files = [
+    "quantcode-1.2.3-linux-x86_64.AppImage",
+    "quantcode-1.2.3-linux-x86_64.AppImage.blockmap",
+    "quantcode-1.2.3-linux-amd64.deb",
+  ].map((filename) => ({ filename, content: `fixture:${filename}` }))
+  const missingRpm = {
+    filename: "quantcode-1.2.3-linux-x86_64.rpm",
+    content: "fixture:quantcode-1.2.3-linux-x86_64.rpm",
+  }
+
+  try {
+    await Promise.all([
+      mkdir(path.join(metadataRoot, "latest-yml-x86_64-unknown-linux-gnu"), { recursive: true }),
+      mkdir(assetRoot, { recursive: true }),
+    ])
+    await Promise.all(files.map((file) => Bun.write(path.join(assetRoot, file.filename), file.content)))
+    await Bun.write(
+      path.join(metadataRoot, "latest-yml-x86_64-unknown-linux-gnu", "latest-linux.yml"),
+      metadataFor([...files, missingRpm]),
+    )
+
+    const child = Bun.spawn(["bun", script], {
+      env: {
+        ...process.env,
+        LATEST_YML_DIR: metadataRoot,
+        RELEASE_ASSET_DIR: assetRoot,
+        UPLOAD_RELEASE_METADATA: "false",
+        OPENCODE_VERSION: "1.2.3",
+        REQUIRED_TARGETS: "x86_64-unknown-linux-gnu",
+      },
+      stdout: "pipe",
+      stderr: "pipe",
+    })
+    const [exitCode, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()])
+
+    expect(exitCode).not.toBe(0)
+    expect(stderr).toContain("Missing release assets: quantcode-1.2.3-linux-x86_64.rpm")
   } finally {
     await rm(root, { recursive: true, force: true })
   }

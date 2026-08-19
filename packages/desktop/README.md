@@ -2,7 +2,7 @@
 
 The QuantCode desktop app reuses the OpenCode Electron shell with QuantCode product identity, renderer, sidecar, and release controls.
 
-See [QUANTCODE_RELEASE.md](./QUANTCODE_RELEASE.md) for macOS and Windows packaging, signing, updater, and release requirements. Linux targets remain configured but are not in the active release matrix.
+See [QUANTCODE_RELEASE.md](./QUANTCODE_RELEASE.md) for macOS, Windows, and Linux packaging, signing, updater, and release requirements. The active Linux matrix builds x64 AppImage, `.deb`, and `.rpm` artifacts; ARM64 remains configured for a later hosted-runner validation.
 
 ## Development
 
