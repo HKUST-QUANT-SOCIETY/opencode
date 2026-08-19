@@ -216,10 +216,21 @@ test("validates the complete installer set and writes SHA256SUMS before upload",
     expect(await Bun.file(path.join(finalizedRoot, "latest.yml")).exists()).toBe(true)
 
     const checksums = await Bun.file(path.join(finalizedRoot, "SHA256SUMS")).text()
-    expect(checksums.trim().split("\n")).toHaveLength(12)
+    expect(checksums.trim().split("\n")).toHaveLength(13)
     for (const file of files) expect(checksums).toContain(`  ${file.filename}`)
     expect(checksums).toContain("  latest-mac.yml")
     expect(checksums).toContain("  latest.yml")
+    expect(checksums).toContain("  release-manifest.json")
+
+    const manifest = await Bun.file(path.join(finalizedRoot, "release-manifest.json")).json()
+    expect(manifest).toMatchObject({
+      schemaVersion: 1,
+      product: "QuantCode",
+      version: "1.2.3",
+      release: { repository: "HKUST-QUANT-SOCIETY/quantcode", tag: "v1.2.3" },
+    })
+    expect(manifest.assets).toHaveLength(12)
+    expect(manifest.assets.map((asset: { name: string }) => asset.name)).toContain("latest-mac.yml")
   } finally {
     await rm(root, { recursive: true, force: true })
   }

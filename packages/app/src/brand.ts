@@ -9,9 +9,13 @@ export function resolveBrand(channel: ImportMetaEnv["VITE_OPENCODE_CHANNEL"]) {
     feedbackUrl: quantcode
       ? "https://github.com/HKUST-QUANT-SOCIETY/quantcode/issues"
       : "https://opencode.ai/desktop-feedback",
-    feedbackLabel: quantcode ? "在 GitHub 上" : undefined,
+    feedbackLabel: quantcode ? "GitHub Issues" : undefined,
     feedbackIcon: quantcode ? ("github" as const) : ("discord" as const),
   }
+}
+
+export function productCopy(value: string, productName: string) {
+  return value.replaceAll("OpenCode", productName)
 }
 
 const brand = resolveBrand(import.meta.env.VITE_OPENCODE_CHANNEL)

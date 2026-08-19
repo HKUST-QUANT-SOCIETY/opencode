@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { resolveBrand } from "./brand"
+import { productCopy, resolveBrand } from "./brand"
 
 describe("QuantCode brand", () => {
   test("uses QuantCode identity and GitHub feedback", () => {
@@ -8,7 +8,7 @@ describe("QuantCode brand", () => {
       name: "QuantCode",
       icon: "/quantcode-icon.png",
       feedbackUrl: "https://github.com/HKUST-QUANT-SOCIETY/quantcode/issues",
-      feedbackLabel: "在 GitHub 上",
+      feedbackLabel: "GitHub Issues",
       feedbackIcon: "github",
     })
   })
@@ -17,9 +17,16 @@ describe("QuantCode brand", () => {
     expect(resolveBrand(undefined)).toMatchObject({
       isQuantCode: true,
       name: "QuantCode",
-      feedbackLabel: "在 GitHub 上",
+      feedbackLabel: "GitHub Issues",
       feedbackIcon: "github",
     })
+  })
+
+  test("rewrites upstream product references in localized copy", () => {
+    expect(productCopy("请将此错误报告给 OpenCode 团队", "QuantCode")).toBe("请将此错误报告给 QuantCode 团队")
+    expect(productCopy("Please report this error to the OpenCode team", "QuantCode")).toBe(
+      "Please report this error to the QuantCode team",
+    )
   })
 
   test("uses QuantCode document branding when no channel is supplied", async () => {

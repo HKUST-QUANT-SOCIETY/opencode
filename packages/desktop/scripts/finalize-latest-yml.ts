@@ -14,6 +14,7 @@ if (!version) throw new Error("OPENCODE_VERSION is required")
 
 const releaseAssetDir = process.env.RELEASE_ASSET_DIR
 const upload = process.env.UPLOAD_RELEASE_METADATA !== "false"
+const tag = process.env.RELEASE_TAG || `v${version}`
 
 type FileEntry = {
   url: string
@@ -217,11 +218,6 @@ if (macX64 || macArm64) {
   })
 }
 
-// Upload to release
-// OpenCode's release tags use `v<version>`, while QuantCode uses
-// `quantcode-v<version>`. Keep the existing default and let alternate
-// channels provide their exact tag without duplicating this merger.
-const tag = process.env.RELEASE_TAG || `v${version}`
 const outputDir = process.env.FINALIZED_YML_DIR ?? process.env.RUNNER_TEMP ?? "/tmp"
 await mkdir(outputDir, { recursive: true })
 
@@ -234,10 +230,45 @@ for (const [filename, content] of Object.entries(output)) {
 }
 
 if (releaseAssetDir) {
-  const files = [
+  const manifestFiles = [
     ...(await readdir(releaseAssetDir)).map((filename) => path.join(releaseAssetDir, filename)),
     ...generated,
-  ]
+  ].sort((a, b) => path.basename(a).localeCompare(path.basename(b)))
+  const manifestPath = path.join(outputDir, "release-manifest.json")
+  const sourceRepository = process.env.SOURCE_REPOSITORY ?? process.env.GITHUB_REPOSITORY ?? "local"
+  const sourceCommit = process.env.SOURCE_COMMIT ?? process.env.GITHUB_SHA ?? "local"
+  const workflowRunId = process.env.WORKFLOW_RUN_ID ?? process.env.GITHUB_RUN_ID ?? "local"
+  const serverUrl = process.env.GITHUB_SERVER_URL ?? "https://github.com"
+  const manifest = {
+    schemaVersion: 1,
+    product: "QuantCode",
+    version,
+    source: {
+      repository: sourceRepository,
+      commit: sourceCommit,
+      ref: process.env.SOURCE_REF ?? process.env.GITHUB_REF ?? "local",
+    },
+    workflow: {
+      runId: workflowRunId,
+      runAttempt: process.env.WORKFLOW_RUN_ATTEMPT ?? process.env.GITHUB_RUN_ATTEMPT ?? "local",
+      url: sourceRepository === "local" ? "local" : `${serverUrl}/${sourceRepository}/actions/runs/${workflowRunId}`,
+    },
+    release: {
+      repository: process.env.TARGET_REPOSITORY ?? process.env.GH_REPO ?? "HKUST-QUANT-SOCIETY/quantcode",
+      tag,
+    },
+    assets: await Promise.all(
+      manifestFiles.map(async (file) => ({
+        name: path.basename(file),
+        size: (await stat(file)).size,
+        sha256: await digest(file, "sha256", "hex"),
+      })),
+    ),
+  }
+  await Bun.write(manifestPath, JSON.stringify(manifest, null, 2) + "\n")
+  generated.push(manifestPath)
+
+  const files = [...manifestFiles, manifestPath]
   const checksums = await Promise.all(
     files
       .sort((a, b) => path.basename(a).localeCompare(path.basename(b)))

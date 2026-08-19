@@ -14,6 +14,7 @@ import {
   PRODUCT_ICON,
   PRODUCT_NAME,
   isQuantCode,
+  productCopy,
 } from "@/brand"
 import { errorDescriptionKey } from "./error-description"
 
@@ -284,7 +285,10 @@ export const ErrorPage: Component<ErrorPageProps> = (props) => {
   }
 
   return (
-    <div class="relative flex-1 h-screen w-screen min-h-0 flex flex-col items-center justify-center bg-background-base font-sans">
+    <div
+      data-page="error"
+      class="relative flex-1 h-screen w-screen min-h-0 flex flex-col items-center justify-center bg-background-base font-sans"
+    >
       <div class="w-2/3 max-w-3xl flex flex-col items-center justify-center gap-8">
         <Show when={isQuantCode} fallback={<Logo class="w-58.5 opacity-12 shrink-0" />}>
           <div class="flex items-center gap-3 text-text-strong">
@@ -292,7 +296,7 @@ export const ErrorPage: Component<ErrorPageProps> = (props) => {
             <span class="text-3xl font-semibold tracking-tight">{PRODUCT_NAME}</span>
           </div>
         </Show>
-        <div class="flex flex-col items-center gap-2 text-center">
+        <div class="flex flex-col items-center gap-2 text-center" role="alert">
           <h1 class="text-lg font-medium text-text-strong">{language.t("error.page.title")}</h1>
           <p class="text-sm text-text-weak">{language.t(errorDescriptionKey(props.error))}</p>
         </div>
@@ -360,7 +364,7 @@ export const ErrorPage: Component<ErrorPageProps> = (props) => {
         </Show>
         <div class="flex flex-col items-center gap-2">
           <div class="flex items-center justify-center gap-1">
-            {language.t("error.page.report.prefix")}
+            {productCopy(language.t("error.page.report.prefix"), PRODUCT_NAME)}
             <button
               type="button"
               class="flex items-center text-text-interactive-base gap-1"

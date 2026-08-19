@@ -20,6 +20,8 @@ on:
   # changes in a pull request so packaging is validated before merge.
   pull_request:
     paths:
+      - ".github/actions/build-quantcode-desktop/**"
+      - ".github/actions/setup-bun/**"
       - ".github/workflows/quantcode-desktop.yml"
       - "packages/app/**"
       - "packages/desktop/**"
@@ -29,7 +31,7 @@ on:
 
 concurrency:
   group: quantcode-desktop-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -44,6 +46,8 @@ jobs:
       prerelease: ${{ steps.release.outputs.prerelease }}
     steps:
       - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3.6.0
+        with:
+          fetch-depth: 0
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
@@ -59,6 +63,10 @@ jobs:
           if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
             version="${GITHUB_REF_NAME#quantcode-v}"
             publish=true
+            if ! git merge-base --is-ancestor "$GITHUB_SHA" "origin/$DEFAULT_BRANCH"; then
+              echo "Release tag $GITHUB_REF_NAME must point to a commit reachable from $DEFAULT_BRANCH" >&2
+              exit 1
+            fi
           else
             version="${INPUT_VERSION:-0.1.${GITHUB_RUN_NUMBER}}"
             publish="${INPUT_PUBLISH:-false}"
@@ -75,44 +83,12 @@ jobs:
             echo "publish=$publish"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Require release credentials
-        if: steps.release.outputs.publish == 'true'
-        shell: bash
-        env:
-          QUANTCODE_RELEASE_TOKEN: ${{ secrets.QUANTCODE_RELEASE_TOKEN }}
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY_CONTENT }}
-          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          AZURE_TRUSTED_SIGNING_ACCOUNT_NAME: ${{ secrets.AZURE_TRUSTED_SIGNING_ACCOUNT_NAME }}
-          AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE: ${{ secrets.AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE }}
-          AZURE_TRUSTED_SIGNING_ENDPOINT: ${{ secrets.AZURE_TRUSTED_SIGNING_ENDPOINT }}
-          AZURE_TRUSTED_SIGNING_PUBLISHER_NAME: ${{ secrets.AZURE_TRUSTED_SIGNING_PUBLISHER_NAME }}
-        run: |
-          missing=()
-          for name in \
-            QUANTCODE_RELEASE_TOKEN \
-            APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_API_KEY_CONTENT APPLE_API_KEY_ID APPLE_API_ISSUER \
-            AZURE_CLIENT_ID AZURE_TENANT_ID AZURE_SUBSCRIPTION_ID \
-            AZURE_TRUSTED_SIGNING_ACCOUNT_NAME AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE \
-            AZURE_TRUSTED_SIGNING_ENDPOINT AZURE_TRUSTED_SIGNING_PUBLISHER_NAME; do
-            if [[ -z "${!name}" ]]; then missing+=("$name"); fi
-          done
-          if (( ${#missing[@]} > 0 )); then
-            printf 'Published QuantCode releases require all signing/release secrets. Missing: %s\n' "${missing[*]}" >&2
-            exit 1
-          fi
-
-  build:
+  build_unsigned:
     needs: version
+    if: needs.version.outputs.publish != 'true'
     permissions:
       contents: read
-      id-token: write
-    name: ${{ matrix.name }}
+    name: Unsigned / ${{ matrix.name }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 75
     strategy:
@@ -124,273 +100,106 @@ jobs:
             target: x86_64-apple-darwin
             platform: --mac --x64
             install: --os=darwin --cpu=x64
-            signer: apple
           - name: macOS Apple Silicon
             runner: macos-15
             target: aarch64-apple-darwin
             platform: --mac --arm64
             install: --os=darwin --cpu=arm64
-            signer: apple
           - name: Windows x64
             runner: windows-2025
             target: x86_64-pc-windows-msvc
             platform: --win --x64
             install: --os=win32 --cpu=x64
-            signer: windows
-          - name: Linux x64
-            runner: ubuntu-24.04
-            target: x86_64-unknown-linux-gnu
-            platform: --linux --x64
-            install: --os=linux --cpu=x64
-            signer: linux
-
-    env:
-      OPENCODE_CHANNEL: quantcode
-      OPENCODE_VERSION: ${{ needs.version.outputs.version }}
-      RUST_TARGET: ${{ matrix.target }}
-      # Keep all platform builds reproducible and independent of a live
-      # models.dev request. Update the tracked snapshot deliberately when the
-      # supported provider catalog changes.
-      MODELS_DEV_API_JSON: ${{ github.workspace }}/packages/opencode/test/tool/fixtures/models-api.json
-      # Only non-publishing artifact runs may opt into the unsigned updater
-      # path. Signed credentials still take precedence in the resolver.
-      QUANTCODE_UNSIGNED_BUILD: ${{ needs.version.outputs.publish != 'true' }}
-      QUANTCODE_SIGNED_RELEASE: ${{ needs.version.outputs.publish == 'true' }}
-      AZURE_CLIENT_ID: ${{ matrix.signer == 'windows' && secrets.AZURE_CLIENT_ID || '' }}
-      AZURE_TENANT_ID: ${{ matrix.signer == 'windows' && secrets.AZURE_TENANT_ID || '' }}
-      AZURE_SUBSCRIPTION_ID: ${{ matrix.signer == 'windows' && secrets.AZURE_SUBSCRIPTION_ID || '' }}
-      AZURE_TRUSTED_SIGNING_ACCOUNT_NAME: ${{ matrix.signer == 'windows' && secrets.AZURE_TRUSTED_SIGNING_ACCOUNT_NAME || '' }}
-      AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE: ${{ matrix.signer == 'windows' && secrets.AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE || '' }}
-      AZURE_TRUSTED_SIGNING_ENDPOINT: ${{ matrix.signer == 'windows' && secrets.AZURE_TRUSTED_SIGNING_ENDPOINT || '' }}
-      AZURE_TRUSTED_SIGNING_PUBLISHER_NAME: ${{ matrix.signer == 'windows' && secrets.AZURE_TRUSTED_SIGNING_PUBLISHER_NAME || '' }}
-      APPLE_CERTIFICATE: ${{ matrix.signer == 'apple' && secrets.APPLE_CERTIFICATE || '' }}
-      APPLE_CERTIFICATE_PASSWORD: ${{ matrix.signer == 'apple' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
-      APPLE_API_KEY_CONTENT: ${{ matrix.signer == 'apple' && secrets.APPLE_API_KEY_CONTENT || '' }}
-      APPLE_API_KEY_ID: ${{ matrix.signer == 'apple' && secrets.APPLE_API_KEY_ID || '' }}
-      APPLE_API_ISSUER: ${{ matrix.signer == 'apple' && secrets.APPLE_API_ISSUER || '' }}
 
     steps:
       - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3.6.0
-
-      - uses: ./.github/actions/setup-bun
+      - uses: ./.github/actions/build-quantcode-desktop
         with:
-          install-flags: ${{ matrix.install }}
+          release_version: ${{ needs.version.outputs.version }}
+          rust_target: ${{ matrix.target }}
+          platform: ${{ matrix.platform }}
+          install_flags: ${{ matrix.install }}
+          signing_mode: unsigned
 
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+  build_signed_macos:
+    needs: version
+    if: needs.version.outputs.publish == 'true'
+    name: Signed / ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 75
+    environment: quantcode-release
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS Intel
+            runner: macos-15-intel
+            target: x86_64-apple-darwin
+            platform: --mac --x64
+            install: --os=darwin --cpu=x64
+          - name: macOS Apple Silicon
+            runner: macos-15
+            target: aarch64-apple-darwin
+            platform: --mac --arm64
+            install: --os=darwin --cpu=arm64
+    steps:
+      - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3.6.0
+      - uses: ./.github/actions/build-quantcode-desktop
         with:
-          node-version: "24"
+          release_version: ${{ needs.version.outputs.version }}
+          rust_target: ${{ matrix.target }}
+          platform: ${{ matrix.platform }}
+          install_flags: ${{ matrix.install }}
+          signing_mode: signed
+          apple_certificate: ${{ secrets.APPLE_CERTIFICATE }}
+          apple_certificate_password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          apple_api_key_content: ${{ secrets.APPLE_API_KEY_CONTENT }}
+          apple_api_key_id: ${{ secrets.APPLE_API_KEY_ID }}
+          apple_api_issuer: ${{ secrets.APPLE_API_ISSUER }}
 
-      - name: Install Linux packaging tools
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends fakeroot rpm
-
-      - name: Import Apple signing certificate
-        if: runner.os == 'macOS' && env.APPLE_CERTIFICATE != ''
-        uses: apple-actions/import-codesign-certs@8f3fb608891dd2244cdab3d69cd68c0d37a7fe93 # v2.0.0
+  build_signed_windows:
+    needs: version
+    if: needs.version.outputs.publish == 'true'
+    name: Signed / Windows x64
+    runs-on: windows-2025
+    timeout-minutes: 75
+    environment: quantcode-release
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3.6.0
+      - uses: ./.github/actions/build-quantcode-desktop
         with:
-          keychain: build
-          p12-file-base64: ${{ env.APPLE_CERTIFICATE }}
-          p12-password: ${{ env.APPLE_CERTIFICATE_PASSWORD }}
+          release_version: ${{ needs.version.outputs.version }}
+          rust_target: x86_64-pc-windows-msvc
+          platform: --win --x64
+          install_flags: --os=win32 --cpu=x64
+          signing_mode: signed
+          azure_client_id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure_tenant_id: ${{ secrets.AZURE_TENANT_ID }}
+          azure_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          azure_trusted_signing_account_name: ${{ secrets.AZURE_TRUSTED_SIGNING_ACCOUNT_NAME }}
+          azure_trusted_signing_certificate_profile: ${{ secrets.AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE }}
+          azure_trusted_signing_endpoint: ${{ secrets.AZURE_TRUSTED_SIGNING_ENDPOINT }}
+          azure_trusted_signing_publisher_name: ${{ secrets.AZURE_TRUSTED_SIGNING_PUBLISHER_NAME }}
 
-      - name: Prepare Apple notarization key
-        if: runner.os == 'macOS' && env.APPLE_API_KEY_CONTENT != ''
-        shell: bash
-        run: printf '%s' "$APPLE_API_KEY_CONTENT" > "$RUNNER_TEMP/quantcode-apple-api-key.p8"
-
-      - name: Login for Windows Trusted Signing
-        if: runner.os == 'Windows' && env.AZURE_CLIENT_ID != ''
-        uses: azure/login@a457da9ea143d694b1b9c7c869ebb04ebe844ef5 # v2.3.0
-        with:
-          client-id: ${{ env.AZURE_CLIENT_ID }}
-          tenant-id: ${{ env.AZURE_TENANT_ID }}
-          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
-
-      - name: Set desktop version
-        working-directory: packages/desktop
-        shell: bash
-        run: |
-          bun -e 'const path="package.json"; const pkg=await Bun.file(path).json(); pkg.version=process.env.OPENCODE_VERSION; await Bun.write(path, JSON.stringify(pkg, null, 2)+"\n")'
-
-      - name: Build QuantCode desktop
-        working-directory: packages/desktop
-        run: bun run build
-        env:
-          NODE_OPTIONS: --max-old-space-size=4096
-
-      - name: Package installers
-        working-directory: packages/desktop
-        shell: bash
-        env:
-          CSC_LINK: ${{ runner.os == 'macOS' && env.APPLE_CERTIFICATE || '' }}
-          CSC_KEY_PASSWORD: ${{ runner.os == 'macOS' && env.APPLE_CERTIFICATE_PASSWORD || '' }}
-          APPLE_API_KEY: ${{ runner.os == 'macOS' && format('{0}/quantcode-apple-api-key.p8', runner.temp) || '' }}
-          APPLE_API_KEY_ID: ${{ runner.os == 'macOS' && env.APPLE_API_KEY_ID || '' }}
-          APPLE_API_ISSUER: ${{ runner.os == 'macOS' && env.APPLE_API_ISSUER || '' }}
-        run: bunx electron-builder ${{ matrix.platform }} --publish never --config electron-builder.config.ts
-
-      - name: Verify installer set
-        working-directory: packages/desktop
-        shell: bash
-        run: |
-          # electron-builder currently emits latest-linux.yml for both Linux
-          # architectures. Keep the ARM feed distinct so electron-updater can
-          # select it by architecture in the merged GitHub Release.
-          if [[ "$RUST_TARGET" == "aarch64-unknown-linux-gnu" && -s dist/latest-linux.yml && ! -e dist/latest-linux-arm64.yml ]]; then
-            mv dist/latest-linux.yml dist/latest-linux-arm64.yml
-          fi
-
-          case "$RUST_TARGET" in
-            aarch64-apple-darwin)
-              suffix="mac-arm64"
-              expected=(
-                "dist/quantcode-$OPENCODE_VERSION-$suffix.dmg"
-                "dist/quantcode-$OPENCODE_VERSION-$suffix.dmg.blockmap"
-                "dist/quantcode-$OPENCODE_VERSION-$suffix.zip"
-                "dist/quantcode-$OPENCODE_VERSION-$suffix.zip.blockmap"
-                "dist/latest-mac.yml"
-              )
-              ;;
-            x86_64-apple-darwin)
-              suffix="mac-x64"
-              expected=(
-                "dist/quantcode-$OPENCODE_VERSION-$suffix.dmg"
-                "dist/quantcode-$OPENCODE_VERSION-$suffix.dmg.blockmap"
-                "dist/quantcode-$OPENCODE_VERSION-$suffix.zip"
-                "dist/quantcode-$OPENCODE_VERSION-$suffix.zip.blockmap"
-                "dist/latest-mac.yml"
-              )
-              ;;
-            x86_64-pc-windows-msvc)
-              suffix="win-x64"
-              expected=(
-                "dist/quantcode-$OPENCODE_VERSION-$suffix.exe"
-                "dist/quantcode-$OPENCODE_VERSION-$suffix.exe.blockmap"
-                "dist/latest.yml"
-              )
-              ;;
-            x86_64-unknown-linux-gnu)
-              # electron-builder uses Linux-specific architecture spellings:
-              # x86_64 for AppImage/RPM and amd64 for Debian.
-              suffix="linux-x86_64"
-              expected=(
-                "dist/quantcode-$OPENCODE_VERSION-$suffix.AppImage"
-                "dist/quantcode-$OPENCODE_VERSION-linux-amd64.deb"
-                "dist/quantcode-$OPENCODE_VERSION-$suffix.rpm"
-                "dist/latest-linux.yml"
-              )
-              ;;
-            aarch64-unknown-linux-gnu)
-              suffix="linux-arm64"
-              expected=(
-                "dist/quantcode-$OPENCODE_VERSION-$suffix.AppImage"
-                "dist/quantcode-$OPENCODE_VERSION-linux-arm64.deb"
-                "dist/quantcode-$OPENCODE_VERSION-linux-aarch64.rpm"
-                "dist/latest-linux-arm64.yml"
-              )
-              ;;
-            *)
-              echo "Unknown release target: $RUST_TARGET" >&2
-              exit 1
-              ;;
-          esac
-
-          for file in "${expected[@]}"; do
-            if [[ ! -s "$file" ]]; then
-              echo "Missing or empty release output: $file" >&2
-              exit 1
-            fi
-          done
-
-      - name: Verify macOS signature
-        if: runner.os == 'macOS' && env.APPLE_CERTIFICATE != ''
-        shell: bash
-        run: |
-          found=false
-          while IFS= read -r -d '' app; do
-            found=true
-            codesign --verify --deep --strict --verbose=2 "$app"
-            details="$(codesign --display --verbose=4 "$app" 2>&1)"
-            grep -q '^Authority=Developer ID Application:' <<< "$details"
-            grep -Eq '^TeamIdentifier=.+$' <<< "$details"
-            spctl --assess --type execute --verbose=4 "$app"
-            xcrun stapler validate "$app"
-          done < <(find packages/desktop/dist -maxdepth 2 -name '*.app' -type d -print0)
-
-          if [[ "$found" != "true" ]]; then
-            echo "No packaged macOS application was found" >&2
-            exit 1
-          fi
-
-      - name: Verify Windows signature
-        if: runner.os == 'Windows' && env.AZURE_CLIENT_ID != ''
-        shell: pwsh
-        run: |
-          $expectedPublisher = $env:AZURE_TRUSTED_SIGNING_PUBLISHER_NAME
-          $files = @(
-            Get-ChildItem "packages\desktop\dist\quantcode-*-win-x64.exe"
-            Get-ChildItem "packages\desktop\dist\*-unpacked\QuantCode.exe"
-          )
-          if ($files.Count -lt 2) {
-            throw "Expected the signed NSIS installer and unpacked QuantCode.exe"
-          }
-
-          $files | ForEach-Object {
-            $signature = Get-AuthenticodeSignature $_.FullName
-            if ($signature.Status -ne "Valid") {
-              throw "Invalid signature for $($_.FullName): $($signature.Status)"
-            }
-            if ($signature.SignerCertificate.Subject -ne $expectedPublisher) {
-              throw "Unexpected publisher for $($_.FullName): $($signature.SignerCertificate.Subject)"
-            }
-          }
-
-          $updateConfig = Get-ChildItem "packages\desktop\dist\*-unpacked\resources\app-update.yml" | Select-Object -First 1
-          if (-not $updateConfig) {
-            throw "Packaged app-update.yml was not found"
-          }
-          $publisherLine = Get-Content $updateConfig.FullName | Where-Object { $_ -match '^publisherName:' } | Select-Object -First 1
-          if (-not $publisherLine) {
-            throw "app-update.yml does not contain publisherName"
-          }
-          $configuredPublisher = $publisherLine.Substring($publisherLine.IndexOf(':') + 1).Trim().Trim("'`"")
-          if ($configuredPublisher -ne $expectedPublisher) {
-            throw "app-update.yml publisherName does not match the signing certificate subject"
-          }
-
-      - name: Upload installers
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: quantcode-${{ matrix.target }}
-          if-no-files-found: error
-          path: |
-            packages/desktop/dist/*.dmg
-            packages/desktop/dist/*.zip
-            packages/desktop/dist/*.exe
-            packages/desktop/dist/*.AppImage
-            packages/desktop/dist/*.deb
-            packages/desktop/dist/*.rpm
-            packages/desktop/dist/*.blockmap
-
-      # Keep each target's updater metadata in its own artifact. In particular,
-      # both macOS jobs emit `latest-mac.yml`; flattening those files into one
-      # release directory makes the last downloaded architecture win.
-      - name: Upload updater metadata
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: latest-yml-${{ matrix.target }}
-          if-no-files-found: error
-          path: packages/desktop/dist/latest*.yml
-
-  release:
+  finalize:
     needs:
       - version
-      - build
-    if: needs.version.outputs.publish == 'true'
+      - build_unsigned
+      - build_signed_macos
+      - build_signed_windows
+    if: >-
+      ${{ always() && needs.version.result == 'success' &&
+          ((needs.build_unsigned.result == 'success' && needs.build_signed_macos.result == 'skipped' &&
+            needs.build_signed_windows.result == 'skipped') ||
+           (needs.build_unsigned.result == 'skipped' && needs.build_signed_macos.result == 'success' &&
+            needs.build_signed_windows.result == 'success')) }}
+    name: Finalize release bundle
     runs-on: ubuntu-24.04
-    environment: quantcode-release
     permissions:
       contents: read
     steps:
@@ -421,8 +230,49 @@ jobs:
           FINALIZED_YML_DIR: release-finalized
           UPLOAD_RELEASE_METADATA: "false"
           OPENCODE_VERSION: ${{ needs.version.outputs.version }}
-          REQUIRED_TARGETS: aarch64-apple-darwin,x86_64-apple-darwin,x86_64-pc-windows-msvc,x86_64-unknown-linux-gnu
+          RELEASE_TAG: ${{ needs.version.outputs.tag }}
+          TARGET_REPOSITORY: HKUST-QUANT-SOCIETY/quantcode
+          SOURCE_REPOSITORY: ${{ github.repository }}
+          SOURCE_COMMIT: ${{ github.sha }}
+          SOURCE_REF: ${{ github.ref }}
+          WORKFLOW_RUN_ID: ${{ github.run_id }}
+          WORKFLOW_RUN_ATTEMPT: ${{ github.run_attempt }}
+          REQUIRED_TARGETS: aarch64-apple-darwin,x86_64-apple-darwin,x86_64-pc-windows-msvc
         run: bun packages/desktop/scripts/finalize-latest-yml.ts
+
+      - name: Upload finalized release metadata
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-metadata
+          if-no-files-found: error
+          path: release-finalized/*
+
+  release:
+    needs:
+      - version
+      - build_signed_macos
+      - build_signed_windows
+      - finalize
+    if: >-
+      ${{ always() && needs.version.outputs.publish == 'true' && needs.build_signed_macos.result == 'success' &&
+          needs.build_signed_windows.result == 'success' && needs.finalize.result == 'success' }}
+    runs-on: ubuntu-24.04
+    environment: quantcode-release
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3.6.0
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: quantcode-*
+          path: release-assets
+          merge-multiple: true
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-metadata
+          path: release-finalized
 
       - name: Stage draft GitHub Release
         shell: bash
