@@ -286,7 +286,7 @@ test("validates Linux assets while retaining AppImage-only updater metadata", as
     const appImage = files.find((file) => file.filename.endsWith(".AppImage"))!
     await Bun.write(
       path.join(metadataRoot, "latest-yml-x86_64-unknown-linux-gnu", "latest-linux.yml"),
-      `${metadataFor([appImage])}path: ${appImage.filename}\nsha512: legacy-linux-appimage\n`,
+      `${metadataFor(files)}path: ${appImage.filename}\nsha512: legacy-linux-appimage\n`,
     )
 
     const child = Bun.spawn(["bun", script], {

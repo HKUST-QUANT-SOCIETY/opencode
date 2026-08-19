@@ -169,6 +169,22 @@ if (releaseAssetDir) await validateReleaseAssets(releaseAssetDir, requiredTarget
 
 const output: Record<string, string> = {}
 
+function appImageUpdaterMetadata(metadata: LatestYml): LatestYml {
+  const appImage = metadata.files.find((file) => file.url.endsWith(".AppImage"))
+  if (!appImage) throw new Error("Linux updater metadata is missing an AppImage entry")
+
+  // electron-builder adds DEB/RPM files to the Linux feed when all three
+  // targets are packaged together. They are release assets, not updater
+  // targets: electron-updater must receive a single AppImage path and hash.
+  return {
+    version: metadata.version,
+    files: [appImage],
+    releaseDate: metadata.releaseDate,
+    path: appImage.url,
+    sha512: appImage.sha512,
+  }
+}
+
 // Windows: merge arm64 + x64 into single file
 const winX64 = await read("latest-yml-x86_64-pc-windows-msvc", "latest.yml")
 const winArm64 = await read("latest-yml-aarch64-pc-windows-msvc", "latest.yml")
@@ -181,13 +197,13 @@ if (winX64 || winArm64) {
   })
 }
 
-// Linux x64: pass through
+// Linux x64: retain the AppImage updater target only.
 const linuxX64 = await read("latest-yml-x86_64-unknown-linux-gnu", "latest-linux.yml")
-if (linuxX64) output["latest-linux.yml"] = serialize(linuxX64, true)
+if (linuxX64) output["latest-linux.yml"] = serialize(appImageUpdaterMetadata(linuxX64), true)
 
-// Linux arm64: pass through
+// Linux arm64: retain the AppImage updater target only.
 const linuxArm64 = await read("latest-yml-aarch64-unknown-linux-gnu", "latest-linux-arm64.yml")
-if (linuxArm64) output["latest-linux-arm64.yml"] = serialize(linuxArm64, true)
+if (linuxArm64) output["latest-linux-arm64.yml"] = serialize(appImageUpdaterMetadata(linuxArm64), true)
 
 // macOS: merge arm64 + x64 into single file
 const macX64 = await read("latest-yml-x86_64-apple-darwin", "latest-mac.yml")
