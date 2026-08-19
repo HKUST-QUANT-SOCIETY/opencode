@@ -120,6 +120,21 @@ describe("resolveServerKey", () => {
     )
   })
 
+  test("prefers the first current connection when a stale alias is also persisted", () => {
+    const current = {
+      type: "http",
+      http: { url: "http://127.0.0.1:4096" },
+    } as const
+    const stale = {
+      type: "http",
+      http: { url: "http://localhost:4096" },
+    } as const
+
+    expect(resolveServerKey(ServerConnection.Key.make("http://localhost:4096"), [current, stale])).toBe(
+      ServerConnection.Key.make("http://127.0.0.1:4096"),
+    )
+  })
+
   test("does not merge different ports or remote hosts", () => {
     const servers = [
       { type: "http", http: { url: "http://127.0.0.1:4097" } },

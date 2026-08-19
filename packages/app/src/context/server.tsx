@@ -240,11 +240,11 @@ function equivalentLoopbackUrl(left: string, right: string) {
  * those loopback aliases must not create a second active server scope.
  */
 export function resolveServerKey(key: ServerConnection.Key, servers: ServerConnection.Any[]) {
-  const exact = servers.find((conn) => ServerConnection.key(conn) === key)
-  if (exact) return key
-
-  const equivalent = servers.find((conn) => equivalentLoopbackUrl(conn.http.url, key))
-  return equivalent ? ServerConnection.key(equivalent) : key
+  const match = servers.find((conn) => {
+    const candidate = ServerConnection.key(conn)
+    return candidate === key || equivalentLoopbackUrl(conn.http.url, key)
+  })
+  return match ? ServerConnection.key(match) : key
 }
 
 export function nextServerAfterRemoval(
