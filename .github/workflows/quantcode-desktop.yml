@@ -15,6 +15,17 @@ on:
   push:
     tags:
       - "quantcode-v*"
+  # A release workflow cannot be manually dispatched until it reaches the
+  # default branch. Run the same unsigned, artifact-only matrix for desktop
+  # changes in a pull request so packaging is validated before merge.
+  pull_request:
+    paths:
+      - ".github/workflows/quantcode-desktop.yml"
+      - "packages/app/**"
+      - "packages/desktop/**"
+      - "packages/opencode/**"
+      - "package.json"
+      - "bun.lock"
 
 concurrency:
   group: quantcode-desktop-${{ github.ref }}
