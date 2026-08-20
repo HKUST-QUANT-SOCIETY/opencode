@@ -1,8 +1,26 @@
 export type QuantCodeUpdateMode = "signed" | "unsigned" | "disabled"
+export type QuantCodeUpdateFeed = "public" | "disabled"
 
 type Environment = Record<string, string | undefined>
 
 const hasValues = (environment: Environment, keys: string[]) => keys.every((key) => Boolean(environment[key]))
+
+/**
+ * Resolve whether an installed QuantCode app can reach its update feed without
+ * credentials. A private GitHub repository must remain disabled because a
+ * desktop bundle cannot safely carry a long-lived repository token.
+ */
+export function resolveQuantCodeUpdateFeed(environment: Environment = process.env): QuantCodeUpdateFeed {
+  const configured = environment.QUANTCODE_UPDATE_FEED
+  if (configured === "public") return "public"
+  if (configured === "disabled") return "disabled"
+  if (environment.QUANTCODE_PUBLIC_RELEASES === "true") return "public"
+  return "disabled"
+}
+
+export function isQuantCodeUpdaterEnabled(mode: QuantCodeUpdateMode, feed: QuantCodeUpdateFeed) {
+  return mode === "signed" && feed === "public"
+}
 
 /**
  * Resolve the update trust mode while packaging. The result is compiled into
@@ -35,8 +53,8 @@ export function resolveQuantCodeUpdateMode(
   if ((platform === "darwin" && appleSigning) || (platform === "win32" && windowsSigning)) return "signed"
   if (environment.QUANTCODE_UNSIGNED_BUILD === "true") return "unsigned"
   // Linux packages use electron-updater's SHA-512 metadata rather than
-  // platform code signing. Keep the updater available for signed releases;
-  // AppImage/DEB/RPM publication still happens only through the release job.
+  // platform code signing. Linux publishing is currently deferred, so this
+  // branch only preserves the mode for a future explicitly enabled release.
   if (platform === "linux") return "signed"
   return "disabled"
 }

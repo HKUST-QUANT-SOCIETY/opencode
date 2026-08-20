@@ -2,7 +2,7 @@ import { sentryVitePlugin } from "@sentry/vite-plugin"
 import { defineConfig } from "electron-vite"
 import appPlugin from "@opencode-ai/app/vite"
 import * as fs from "node:fs/promises"
-import { resolveQuantCodeUpdateMode } from "./update-mode"
+import { resolveQuantCodeUpdateFeed, resolveQuantCodeUpdateMode } from "./update-mode"
 
 const OPENCODE_SERVER_DIST = "../opencode/dist/node"
 
@@ -13,6 +13,7 @@ const channel = (() => {
   return "quantcode"
 })()
 const updateMode = channel === "quantcode" ? resolveQuantCodeUpdateMode() : "signed"
+const updateFeed = channel === "quantcode" ? resolveQuantCodeUpdateFeed() : "public"
 
 const nodePtyPkg = `@lydell/node-pty-${process.platform}-${process.arch}`
 
@@ -38,6 +39,7 @@ export default defineConfig({
     define: {
       "import.meta.env.OPENCODE_CHANNEL": JSON.stringify(channel),
       "import.meta.env.QUANTCODE_UPDATE_MODE": JSON.stringify(updateMode),
+      "import.meta.env.QUANTCODE_UPDATE_FEED": JSON.stringify(updateFeed),
     },
     build: {
       rollupOptions: {

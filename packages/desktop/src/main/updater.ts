@@ -1,6 +1,6 @@
 import { app, dialog } from "electron"
 import pkg from "electron-updater"
-import { CHANNEL, QUANTCODE_UPDATE_MODE, UPDATER_ENABLED } from "./constants"
+import { CHANNEL, QUANTCODE_UPDATE_FEED, QUANTCODE_UPDATE_MODE, UPDATER_ENABLED } from "./constants"
 import { createUpdaterController, type UpdaterReadyRecord } from "./updater-controller"
 import { getLogger } from "./logging"
 import { getStore } from "./store"
@@ -21,6 +21,7 @@ export function setupAutoUpdater(stop: () => Promise<void>) {
     allowPrerelease: autoUpdater.allowPrerelease,
     allowDowngrade: autoUpdater.allowDowngrade,
     updateMode: CHANNEL === "quantcode" ? QUANTCODE_UPDATE_MODE : "signed",
+    updateFeed: CHANNEL === "quantcode" ? QUANTCODE_UPDATE_FEED : "public",
     currentVersion: app.getVersion(),
   })
 

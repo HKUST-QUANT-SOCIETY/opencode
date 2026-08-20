@@ -16,6 +16,10 @@ inputs:
   signing_mode:
     description: "unsigned for artifact QA, signed for an approved release"
     required: true
+  update_feed:
+    description: "public only when the installed app can anonymously reach its update feed"
+    required: false
+    default: "disabled"
   apple_certificate:
     required: false
     default: ""
@@ -63,9 +67,20 @@ runs:
         INPUT_PLATFORM: ${{ inputs.platform }}
         INPUT_INSTALL_FLAGS: ${{ inputs.install_flags }}
         INPUT_SIGNING_MODE: ${{ inputs.signing_mode }}
+        INPUT_UPDATE_FEED: ${{ inputs.update_feed }}
       run: |
         if [[ "$INPUT_SIGNING_MODE" != "signed" && "$INPUT_SIGNING_MODE" != "unsigned" ]]; then
           echo "signing_mode must be signed or unsigned" >&2
+          exit 1
+        fi
+
+        if [[ "$INPUT_UPDATE_FEED" != "public" && "$INPUT_UPDATE_FEED" != "disabled" ]]; then
+          echo "update_feed must be public or disabled" >&2
+          exit 1
+        fi
+
+        if [[ "$INPUT_UPDATE_FEED" == "public" && "$INPUT_SIGNING_MODE" != "signed" ]]; then
+          echo "public update feeds require signed QuantCode packages" >&2
           exit 1
         fi
 
@@ -90,6 +105,7 @@ runs:
 
         {
           echo "OPENCODE_CHANNEL=quantcode"
+          printf 'QUANTCODE_UPDATE_FEED=%s\n' "$INPUT_UPDATE_FEED"
           printf 'OPENCODE_VERSION=%s\n' "$INPUT_RELEASE_VERSION"
           printf 'RUST_TARGET=%s\n' "$INPUT_RUST_TARGET"
           echo "MODELS_DEV_API_JSON=$GITHUB_WORKSPACE/packages/opencode/test/tool/fixtures/models-api.json"

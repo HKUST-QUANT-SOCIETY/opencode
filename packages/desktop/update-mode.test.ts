@@ -1,9 +1,32 @@
 import { describe, expect, test } from "bun:test"
-import { resolveQuantCodeUpdateMode } from "./update-mode"
+import { isQuantCodeUpdaterEnabled, resolveQuantCodeUpdateFeed, resolveQuantCodeUpdateMode } from "./update-mode"
 
 const empty = {}
 
 describe("QuantCode updater trust mode", () => {
+  test("keeps the anonymous feed disabled by default", () => {
+    expect(resolveQuantCodeUpdateFeed(empty)).toBe("disabled")
+    expect(resolveQuantCodeUpdateFeed({ QUANTCODE_UPDATE_FEED: "disabled", QUANTCODE_PUBLIC_RELEASES: "true" })).toBe(
+      "disabled",
+    )
+  })
+
+  test("allows an explicitly public feed without carrying credentials", () => {
+    expect(resolveQuantCodeUpdateFeed({ QUANTCODE_UPDATE_FEED: "public" })).toBe("public")
+    expect(resolveQuantCodeUpdateFeed({ QUANTCODE_PUBLIC_RELEASES: "true" })).toBe("public")
+  })
+
+  test("keeps update trust separate from feed availability", () => {
+    expect(resolveQuantCodeUpdateMode({ QUANTCODE_SIGNED_RELEASE: "true" }, "darwin")).toBe("signed")
+    expect(resolveQuantCodeUpdateFeed({ QUANTCODE_SIGNED_RELEASE: "true" })).toBe("disabled")
+  })
+
+  test("enables updates only when both policy inputs are satisfied", () => {
+    expect(isQuantCodeUpdaterEnabled("unsigned", "public")).toBe(false)
+    expect(isQuantCodeUpdaterEnabled("signed", "disabled")).toBe(false)
+    expect(isQuantCodeUpdaterEnabled("signed", "public")).toBe(true)
+  })
+
   test("requires an explicit opt-in for unsigned local updates", () => {
     expect(resolveQuantCodeUpdateMode(empty, "darwin")).toBe("disabled")
     expect(resolveQuantCodeUpdateMode({ QUANTCODE_UNSIGNED_BUILD: "true" }, "darwin")).toBe("unsigned")

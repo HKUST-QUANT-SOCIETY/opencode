@@ -21,11 +21,13 @@ the packaged-launch smoke test; a tag named `quantcode-vX.Y.Z`, or a manual
 dispatch from `dev` with `publish=true`, runs the signed release path.
 
 The target repository is currently private. Browser or GitHub CLI login is not
-inherited by an installed Electron app, so the current anonymous
-`electron-updater` GitHub feed cannot read its releases. Do not call automatic
-updates production-ready until either the release repository/assets are public
-or a controlled update service/user-authenticated token flow is implemented.
-Never embed a long-lived repository PAT in the desktop bundle.
+inherited by an installed Electron app, so an anonymous `electron-updater`
+GitHub feed cannot read its releases. Every current QuantCode CI build sets
+`QUANTCODE_UPDATE_FEED=disabled`; signing an installer does not turn on an
+unreachable updater. Users can install and run these packages normally, but
+updates are manual until either the release repository/assets are public or a
+controlled update service/user-authenticated token flow is implemented. Never
+embed a long-lived repository PAT in the desktop bundle.
 
 The build embeds the tracked
 `packages/opencode/test/tool/fixtures/models-api.json` snapshot through
@@ -38,12 +40,18 @@ release workflow change.
 
 Unsigned installers are used only for pull-request and artifact-only QA runs.
 Publishing fails closed unless all required signing and release credentials are
-present. Protect the `quantcode-release` GitHub environment with required
-reviewers before enabling `publish`.
+present. Protect these GitHub environments with required reviewers before
+enabling `publish`:
+
+- `quantcode-release-macos`: Apple signing and notarization secrets only.
+- `quantcode-release-windows`: Azure Trusted Signing secrets only, plus OIDC
+  approval for the Windows job.
+- `quantcode-release-publish`: `QUANTCODE_RELEASE_TOKEN` only, for the release
+  repository upload and final publication.
 
 ### macOS
 
-The two macOS jobs use these environment secrets:
+The two macOS jobs use these `quantcode-release-macos` environment secrets:
 
 - `APPLE_CERTIFICATE`: base64-encoded Developer ID Application `.p12`
 - `APPLE_CERTIFICATE_PASSWORD`
@@ -57,7 +65,7 @@ ticket before uploading the artifacts.
 
 ### Windows
 
-The Windows job uses these environment secrets:
+The Windows job uses these `quantcode-release-windows` environment secrets:
 
 - `AZURE_CLIENT_ID`
 - `AZURE_TENANT_ID`
@@ -78,8 +86,17 @@ OIDC write permission.
 QuantCode stores updater downloads under `quantcode-updater` and uses a
 separate `quantcode.updater` preference store, so an OpenCode installation
 cannot reuse or overwrite its update state. Signed macOS/Windows builds verify
-their platform signatures and disallow downgrade. Unsigned mode is only for
-local or artifact-only testing and must never be published.
+their platform signatures and disallow downgrade. The updater is enabled only
+when `QUANTCODE_UPDATE_MODE=signed` and `QUANTCODE_UPDATE_FEED=public`; the
+current private-repository release therefore remains disabled. Unsigned mode is
+only for local or artifact-only testing and must never be published.
+
+### GitHub release publishing
+
+The `quantcode-release-publish` environment contains `QUANTCODE_RELEASE_TOKEN`.
+It is used only by the final release job to upload verified artifacts to the
+private `HKUST-QUANT-SOCIETY/quantcode` repository. It is never passed to the
+desktop build and is never embedded in an installer.
 
 QuantCode currently disables automatic installation of the upstream OpenCode
 CLI inside WSL. Re-enable that control only after a versioned
@@ -147,6 +164,9 @@ OPENCODE_CHANNEL=quantcode QUANTCODE_UNSIGNED_BUILD=true MODELS_DEV_API_JSON=../
 
 The unsigned package is for QA only and may show macOS trust warnings. A
 production package requires the Apple signing and notarization secrets in CI.
+Automatic updates remain disabled unless the package is signed and
+`QUANTCODE_UPDATE_FEED=public` is deliberately enabled for a public or
+authenticated feed.
 
 ## Local Windows package
 
@@ -156,6 +176,7 @@ From `packages/desktop` on Windows PowerShell:
 $env:OPENCODE_CHANNEL = "quantcode"
 $env:QUANTCODE_UNSIGNED_BUILD = "true"
 $env:MODELS_DEV_API_JSON = "../opencode/test/tool/fixtures/models-api.json"
+$env:QUANTCODE_UPDATE_FEED = "disabled"
 bun run build
 bun run package:win
 ```

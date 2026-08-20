@@ -120,6 +120,7 @@ jobs:
           platform: ${{ matrix.platform }}
           install_flags: ${{ matrix.install }}
           signing_mode: unsigned
+          update_feed: disabled
 
   build_signed_macos:
     needs: version
@@ -127,7 +128,7 @@ jobs:
     name: Signed / ${{ matrix.name }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 75
-    environment: quantcode-release
+    environment: quantcode-release-macos
     permissions:
       contents: read
     strategy:
@@ -153,6 +154,7 @@ jobs:
           platform: ${{ matrix.platform }}
           install_flags: ${{ matrix.install }}
           signing_mode: signed
+          update_feed: disabled
           apple_certificate: ${{ secrets.APPLE_CERTIFICATE }}
           apple_certificate_password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           apple_api_key_content: ${{ secrets.APPLE_API_KEY_CONTENT }}
@@ -165,7 +167,7 @@ jobs:
     name: Signed / Windows x64
     runs-on: windows-2025
     timeout-minutes: 75
-    environment: quantcode-release
+    environment: quantcode-release-windows
     permissions:
       contents: read
       id-token: write
@@ -178,6 +180,7 @@ jobs:
           platform: --win --x64
           install_flags: --os=win32 --cpu=x64
           signing_mode: signed
+          update_feed: disabled
           azure_client_id: ${{ secrets.AZURE_CLIENT_ID }}
           azure_tenant_id: ${{ secrets.AZURE_TENANT_ID }}
           azure_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
@@ -257,7 +260,7 @@ jobs:
       ${{ always() && needs.version.outputs.publish == 'true' && needs.build_signed_macos.result == 'success' &&
           needs.build_signed_windows.result == 'success' && needs.finalize.result == 'success' }}
     runs-on: ubuntu-24.04
-    environment: quantcode-release
+    environment: quantcode-release-publish
     permissions:
       contents: read
     steps:
