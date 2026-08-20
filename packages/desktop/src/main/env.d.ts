@@ -2,6 +2,7 @@ interface ImportMetaEnv {
   readonly OPENCODE_CHANNEL: string
   readonly QUANTCODE_UPDATE_MODE?: "signed" | "unsigned" | "disabled"
   readonly QUANTCODE_UPDATE_FEED?: "public" | "disabled"
+  readonly QUANTCODE_UPDATER_ENABLED?: boolean
 }
 
 interface ImportMeta {
