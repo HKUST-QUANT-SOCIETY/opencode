@@ -308,6 +308,21 @@ runs:
       working-directory: packages/desktop
       shell: bash
       run: |
+        sandbox="dist/linux-unpacked/chrome-sandbox"
+        if [[ ! -f "$sandbox" ]]; then
+          echo "Packaged Chromium sandbox helper was not found" >&2
+          exit 1
+        fi
+        # The unpacked tree is produced as the runner user. Electron refuses to
+        # launch with an incorrectly owned SUID helper, so restore the same
+        # root-owned mode expected from a system installation before smoke.
+        sudo chown root:root "$sandbox"
+        sudo chmod 4755 "$sandbox"
+        if [[ "$(stat -c '%U:%G:%a' "$sandbox")" != "root:root:4755" ]]; then
+          echo "Packaged Chromium sandbox helper has an unsafe owner or mode" >&2
+          exit 1
+        fi
+
         log="$RUNNER_TEMP/quantcode-packaged-smoke.log"
         port="$(node -e 'const net=require("node:net");const server=net.createServer();server.listen(0,"127.0.0.1",()=>{console.log(server.address().port);server.close()})')"
         set -m

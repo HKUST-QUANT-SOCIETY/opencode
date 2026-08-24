@@ -156,9 +156,12 @@ then polls `/json/list` with bounded timeouts and verifies:
 The smoke process receives its PID so cleanup can terminate the complete
 process tree (`kill` on macOS/Linux and `taskkill /T /F` on Windows). Linux runs
 the unpacked app under `xvfb-run`; the release action installs Xvfb and the DEB
-and RPM packaging tools on the Ubuntu runner. The debug port is loopback-only,
-random per run, and never enabled by a normal packaged launch. There is no
-`QUANTCODE_PACKAGED_SMOKE` product flag.
+and RPM packaging tools on the Ubuntu runner. Before launch, CI restores the
+unpacked Chromium `chrome-sandbox` helper to `root:root` mode `4755`, matching a
+system installation instead of disabling Chromium's sandbox. The packaged
+assets are not rewritten by this smoke-only preparation. The debug port is
+loopback-only, random per run, and never enabled by a normal packaged launch.
+There is no `QUANTCODE_PACKAGED_SMOKE` product flag.
 
 Run an artifact-only build from the default branch with:
 
