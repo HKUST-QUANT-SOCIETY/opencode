@@ -103,6 +103,7 @@ async function read(subdir: string, filename: string): Promise<LatestYml | undef
 
 type RequiredTarget = {
   metadata: string
+  metadataSuffixes: string[]
   updaterSuffixes: string[]
   assetSuffixes: string[]
 }
@@ -110,16 +111,19 @@ type RequiredTarget = {
 const requiredTargetSpecs: Record<string, RequiredTarget> = {
   "aarch64-apple-darwin": {
     metadata: "latest-mac.yml",
+    metadataSuffixes: ["-mac-arm64.zip", "-mac-arm64.dmg"],
     updaterSuffixes: ["-mac-arm64.zip", "-mac-arm64.dmg"],
     assetSuffixes: ["-mac-arm64.zip", "-mac-arm64.zip.blockmap", "-mac-arm64.dmg", "-mac-arm64.dmg.blockmap"],
   },
   "x86_64-apple-darwin": {
     metadata: "latest-mac.yml",
+    metadataSuffixes: ["-mac-x64.zip", "-mac-x64.dmg"],
     updaterSuffixes: ["-mac-x64.zip", "-mac-x64.dmg"],
     assetSuffixes: ["-mac-x64.zip", "-mac-x64.zip.blockmap", "-mac-x64.dmg", "-mac-x64.dmg.blockmap"],
   },
   "x86_64-pc-windows-msvc": {
     metadata: "latest.yml",
+    metadataSuffixes: ["-win-x64.exe"],
     updaterSuffixes: ["-win-x64.exe"],
     assetSuffixes: ["-win-x64.exe", "-win-x64.exe.blockmap"],
   },
@@ -127,11 +131,13 @@ const requiredTargetSpecs: Record<string, RequiredTarget> = {
     metadata: "latest-linux.yml",
     // electron-updater uses AppImage metadata. DEB/RPM remain manually
     // installable release assets and are validated separately below.
+    metadataSuffixes: ["-linux-x86_64.AppImage", "-linux-amd64.deb", "-linux-x86_64.rpm"],
     updaterSuffixes: ["-linux-x86_64.AppImage"],
     assetSuffixes: ["-linux-x86_64.AppImage", "-linux-amd64.deb", "-linux-x86_64.rpm"],
   },
   "aarch64-unknown-linux-gnu": {
     metadata: "latest-linux-arm64.yml",
+    metadataSuffixes: ["-linux-arm64.AppImage", "-linux-arm64.deb", "-linux-aarch64.rpm"],
     updaterSuffixes: ["-linux-arm64.AppImage"],
     assetSuffixes: ["-linux-arm64.AppImage", "-linux-arm64.deb", "-linux-aarch64.rpm"],
   },
@@ -141,6 +147,7 @@ const requiredTargets = (process.env.REQUIRED_TARGETS ?? "")
   .split(",")
   .map((target) => target.trim())
   .filter(Boolean)
+const targetIsActive = (target: string) => requiredTargets.length === 0 || requiredTargets.includes(target)
 
 const requiredMetadata = new Map<string, LatestYml>()
 
@@ -156,11 +163,12 @@ for (const target of requiredTargets) {
     throw new Error(`Updater metadata version mismatch for ${target}: expected ${version}, got ${metadata.version}`)
   }
 
-  for (const suffix of spec.updaterSuffixes) {
-    const filename = `quantcode-${version}${suffix}`
-    if (!metadata.files.some((file) => file.url === filename)) {
-      throw new Error(`Updater metadata for ${target} is missing ${filename}`)
-    }
+  const expectedUrls = spec.metadataSuffixes.map((suffix) => `quantcode-${version}${suffix}`).sort()
+  const actualUrls = metadata.files.map((file) => file.url).sort()
+  if (actualUrls.length !== expectedUrls.length || actualUrls.some((url, index) => url !== expectedUrls[index])) {
+    throw new Error(
+      `Updater metadata entries mismatch for ${target}: expected ${expectedUrls.join(", ")}; got ${actualUrls.join(", ") || "none"}`,
+    )
   }
 
   requiredMetadata.set(target, metadata)
@@ -170,9 +178,13 @@ if (releaseAssetDir) await validateReleaseAssets(releaseAssetDir, requiredTarget
 
 const output: Record<string, string> = {}
 
-function appImageUpdaterMetadata(metadata: LatestYml): LatestYml {
-  const appImage = metadata.files.find((file) => file.url.endsWith(".AppImage"))
-  if (!appImage) throw new Error("Linux updater metadata is missing an AppImage entry")
+function appImageUpdaterMetadata(metadata: LatestYml, expectedFilename: string): LatestYml {
+  const appImages = metadata.files.filter((file) => file.url.endsWith(".AppImage"))
+  if (appImages.length !== 1 || appImages[0]?.url !== expectedFilename) {
+    const found = appImages.map((file) => file.url).join(", ") || "none"
+    throw new Error(`Linux updater metadata must contain only ${expectedFilename}; found: ${found}`)
+  }
+  const appImage = appImages[0]
 
   // electron-builder adds DEB/RPM files to the Linux feed when all three
   // targets are packaged together. They are release assets, not updater
@@ -187,8 +199,12 @@ function appImageUpdaterMetadata(metadata: LatestYml): LatestYml {
 }
 
 // Windows: merge arm64 + x64 into single file
-const winX64 = await read("latest-yml-x86_64-pc-windows-msvc", "latest.yml")
-const winArm64 = await read("latest-yml-aarch64-pc-windows-msvc", "latest.yml")
+const winX64 = targetIsActive("x86_64-pc-windows-msvc")
+  ? await read("latest-yml-x86_64-pc-windows-msvc", "latest.yml")
+  : undefined
+const winArm64 = targetIsActive("aarch64-pc-windows-msvc")
+  ? await read("latest-yml-aarch64-pc-windows-msvc", "latest.yml")
+  : undefined
 if (winX64 || winArm64) {
   const base = winArm64 ?? winX64!
   output["latest.yml"] = serialize({
@@ -199,16 +215,34 @@ if (winX64 || winArm64) {
 }
 
 // Linux x64: retain the AppImage updater target only.
-const linuxX64 = await read("latest-yml-x86_64-unknown-linux-gnu", "latest-linux.yml")
-if (linuxX64) output["latest-linux.yml"] = serialize(appImageUpdaterMetadata(linuxX64), true)
+const linuxX64 = targetIsActive("x86_64-unknown-linux-gnu")
+  ? await read("latest-yml-x86_64-unknown-linux-gnu", "latest-linux.yml")
+  : undefined
+if (linuxX64) {
+  output["latest-linux.yml"] = serialize(
+    appImageUpdaterMetadata(linuxX64, `quantcode-${version}-linux-x86_64.AppImage`),
+    true,
+  )
+}
 
 // Linux arm64: retain the AppImage updater target only.
-const linuxArm64 = await read("latest-yml-aarch64-unknown-linux-gnu", "latest-linux-arm64.yml")
-if (linuxArm64) output["latest-linux-arm64.yml"] = serialize(appImageUpdaterMetadata(linuxArm64), true)
+const linuxArm64 = targetIsActive("aarch64-unknown-linux-gnu")
+  ? await read("latest-yml-aarch64-unknown-linux-gnu", "latest-linux-arm64.yml")
+  : undefined
+if (linuxArm64) {
+  output["latest-linux-arm64.yml"] = serialize(
+    appImageUpdaterMetadata(linuxArm64, `quantcode-${version}-linux-arm64.AppImage`),
+    true,
+  )
+}
 
 // macOS: merge arm64 + x64 into single file
-const macX64 = await read("latest-yml-x86_64-apple-darwin", "latest-mac.yml")
-const macArm64 = await read("latest-yml-aarch64-apple-darwin", "latest-mac.yml")
+const macX64 = targetIsActive("x86_64-apple-darwin")
+  ? await read("latest-yml-x86_64-apple-darwin", "latest-mac.yml")
+  : undefined
+const macArm64 = targetIsActive("aarch64-apple-darwin")
+  ? await read("latest-yml-aarch64-apple-darwin", "latest-mac.yml")
+  : undefined
 if (macX64 || macArm64) {
   const base = macArm64 ?? macX64!
   output["latest-mac.yml"] = serialize({
@@ -305,7 +339,7 @@ async function validateReleaseAssets(assetDir: string, targets: string[], metada
   for (const target of targets) {
     const spec = requiredTargetSpecs[target]
     const metadata = metadataByTarget.get(target)!
-    for (const suffix of spec.updaterSuffixes) {
+    for (const suffix of spec.metadataSuffixes) {
       const filename = `quantcode-${version}${suffix}`
       const entry = metadata.files.find((file) => file.url === filename)!
       const filepath = path.join(assetDir, filename)

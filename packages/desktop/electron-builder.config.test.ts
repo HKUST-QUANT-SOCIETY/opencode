@@ -2,6 +2,7 @@ import { expect, test } from "bun:test"
 import type { Configuration } from "electron-builder"
 
 const legacyDesktopEntry = "resources/linux/opencode-desktop.desktop"
+const quantcodeMetainfo = "resources/org.hkust.quantcode.metainfo.xml"
 
 const channels = [
   { channel: "dev", appId: "ai.opencode.desktop.dev", executableName: "ai.opencode.desktop.dev" },
@@ -24,6 +25,7 @@ for (const channel of channels) {
     expect(config.appId).toBe(channel.appId)
     expect(config.extraMetadata?.desktopName).toBe(`${channel.appId}.desktop`)
     expect(config.linux?.executableName).toBe(channel.executableName)
+    expect(config.linux?.syncDesktopName).toBe(true)
     expect(config.linux?.desktop?.entry?.StartupWMClass).toBe(channel.appId)
   })
 }
@@ -51,6 +53,8 @@ test("uses an isolated QuantCode identity and release feed", async () => {
   expect(config.linux?.executableName).toBe("quantcode")
   expect(config.deb?.packageName).toBe("quantcode")
   expect(config.rpm?.packageName).toBe("quantcode")
+  expect(config.deb?.fpm?.[0]).toEndWith(`${quantcodeMetainfo}=/usr/share/metainfo/org.hkust.quantcode.metainfo.xml`)
+  expect(config.rpm?.fpm?.[0]).toEndWith(`${quantcodeMetainfo}=/usr/share/metainfo/org.hkust.quantcode.metainfo.xml`)
   expect(config.win?.verifyUpdateCodeSignature).toBe(false)
   expect(config.forceCodeSigning).toBe(false)
   expect(config.win?.signtoolOptions?.publisherName).toBeUndefined()

@@ -36,6 +36,12 @@ describe("QuantCode updater trust mode", () => {
     expect(resolveQuantCodeUpdateMode({ QUANTCODE_SIGNED_RELEASE: "true" }, "win32")).toBe("signed")
   })
 
+  test("does not infer signed updater trust on Linux", () => {
+    expect(resolveQuantCodeUpdateMode(empty, "linux")).toBe("disabled")
+    expect(resolveQuantCodeUpdateMode({ QUANTCODE_SIGNED_RELEASE: "true" }, "linux")).toBe("disabled")
+    expect(resolveQuantCodeUpdateMode({ QUANTCODE_UNSIGNED_BUILD: "true" }, "linux")).toBe("unsigned")
+  })
+
   test("selects signed mode from complete platform credentials", () => {
     expect(
       resolveQuantCodeUpdateMode(

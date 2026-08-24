@@ -17,6 +17,8 @@ const signScript = path.join(rootDir, "script", "sign-windows.ps1")
 // pins still resolve after the canonical app id changes back to ai.opencode.desktop.
 const legacyDesktopEntry = path.join(packageDir, "resources", "linux", "opencode-desktop.desktop")
 const legacyDesktopEntryFpm = `${legacyDesktopEntry}=/usr/share/applications/opencode-desktop.desktop`
+const quantcodeMetainfo = path.join(packageDir, "resources", "org.hkust.quantcode.metainfo.xml")
+const quantcodeMetainfoFpm = `${quantcodeMetainfo}=/usr/share/metainfo/org.hkust.quantcode.metainfo.xml`
 
 async function signWindows(configuration: { path: string }) {
   if (process.platform !== "win32") return
@@ -39,9 +41,9 @@ const channel = (() => {
   return "quantcode"
 })()
 const updateMode = channel === "quantcode" ? resolveQuantCodeUpdateMode() : "signed"
-// Linux updater feeds are protected by electron-builder's SHA-512 metadata,
-// not by a platform code signature. Keep forceCodeSigning limited to targets
-// that actually support the signing hooks used by the release workflow.
+// Linux SHA-512 updater metadata has no independent trust anchor, so Linux
+// releases keep automatic updates disabled. Limit forceCodeSigning to targets
+// that support the signing hooks used by the release workflow.
 const forceCodeSigning =
   channel === "quantcode" && updateMode === "signed" && (process.platform === "darwin" || process.platform === "win32")
 
@@ -131,6 +133,9 @@ const getBase = (appId: string): Configuration => ({
     icon: `resources/icons`,
     category: "Development",
     executableName: appId,
+    // Keep the generated launcher filename aligned with extraMetadata.desktopName
+    // and the AppStream launchable desktop-id.
+    syncDesktopName: true,
     desktop: {
       entry: {
         // Match the installed .desktop file and hicolor icon basename so
@@ -192,8 +197,8 @@ function getConfig() {
           ...base.linux,
           executableName: "quantcode",
         },
-        deb: { packageName: "quantcode" },
-        rpm: { packageName: "quantcode" },
+        deb: { packageName: "quantcode", fpm: [quantcodeMetainfoFpm] },
+        rpm: { packageName: "quantcode", fpm: [quantcodeMetainfoFpm] },
       }
     }
   }

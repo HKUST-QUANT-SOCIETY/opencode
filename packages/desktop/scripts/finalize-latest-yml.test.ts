@@ -381,3 +381,76 @@ test("fails closed when a Linux deb or rpm asset is missing", async () => {
     await rm(root, { recursive: true, force: true })
   }
 })
+
+test("fails closed when Linux updater metadata contains an extra AppImage", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "quantcode-linux-release-metadata-extra-"))
+  const metadataRoot = path.join(root, "metadata")
+
+  try {
+    await mkdir(path.join(metadataRoot, "latest-yml-x86_64-unknown-linux-gnu"), { recursive: true })
+    await Bun.write(
+      path.join(metadataRoot, "latest-yml-x86_64-unknown-linux-gnu", "latest-linux.yml"),
+      metadataFor([
+        { filename: "quantcode-1.2.3-linux-x86_64.AppImage", content: "expected-appimage" },
+        { filename: "quantcode-1.2.3-linux-amd64.deb", content: "expected-deb" },
+        { filename: "quantcode-1.2.3-linux-x86_64.rpm", content: "expected-rpm" },
+        { filename: "quantcode-1.2.3-linux-legacy.AppImage", content: "unexpected-appimage" },
+      ]),
+    )
+
+    const child = Bun.spawn(["bun", script], {
+      env: {
+        ...process.env,
+        LATEST_YML_DIR: metadataRoot,
+        UPLOAD_RELEASE_METADATA: "false",
+        OPENCODE_VERSION: "1.2.3",
+        REQUIRED_TARGETS: "x86_64-unknown-linux-gnu",
+      },
+      stdout: "pipe",
+      stderr: "pipe",
+    })
+    const [exitCode, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()])
+
+    expect(exitCode).not.toBe(0)
+    expect(stderr).toContain(
+      "Updater metadata entries mismatch for x86_64-unknown-linux-gnu",
+    )
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test("fails closed when macOS updater metadata contains an unexpected URL", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "quantcode-mac-release-metadata-extra-"))
+  const metadataRoot = path.join(root, "metadata")
+
+  try {
+    await mkdir(path.join(metadataRoot, "latest-yml-aarch64-apple-darwin"), { recursive: true })
+    await Bun.write(
+      path.join(metadataRoot, "latest-yml-aarch64-apple-darwin", "latest-mac.yml"),
+      metadataFor([
+        { filename: "quantcode-1.2.3-mac-arm64.zip", content: "expected-zip" },
+        { filename: "quantcode-1.2.3-mac-arm64.dmg", content: "expected-dmg" },
+        { filename: "https://example.test/quantcode-1.2.3-mac-arm64.zip", content: "unexpected-remote" },
+      ]),
+    )
+
+    const child = Bun.spawn(["bun", script], {
+      env: {
+        ...process.env,
+        LATEST_YML_DIR: metadataRoot,
+        UPLOAD_RELEASE_METADATA: "false",
+        OPENCODE_VERSION: "1.2.3",
+        REQUIRED_TARGETS: "aarch64-apple-darwin",
+      },
+      stdout: "pipe",
+      stderr: "pipe",
+    })
+    const [exitCode, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()])
+
+    expect(exitCode).not.toBe(0)
+    expect(stderr).toContain("Updater metadata entries mismatch for aarch64-apple-darwin")
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})

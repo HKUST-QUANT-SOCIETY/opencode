@@ -14,7 +14,7 @@ inputs:
     description: "Platform-specific bun install arguments"
     required: true
   signing_mode:
-    description: "unsigned for artifact QA, signed for an approved release"
+    description: "unsigned for artifact QA, signed for a platform-signed release, none for Linux with updater trust disabled"
     required: true
   update_feed:
     description: "public only when the installed app can anonymously reach its update feed"
@@ -69,8 +69,8 @@ runs:
         INPUT_SIGNING_MODE: ${{ inputs.signing_mode }}
         INPUT_UPDATE_FEED: ${{ inputs.update_feed }}
       run: |
-        if [[ "$INPUT_SIGNING_MODE" != "signed" && "$INPUT_SIGNING_MODE" != "unsigned" ]]; then
-          echo "signing_mode must be signed or unsigned" >&2
+        if [[ "$INPUT_SIGNING_MODE" != "signed" && "$INPUT_SIGNING_MODE" != "unsigned" && "$INPUT_SIGNING_MODE" != "none" ]]; then
+          echo "signing_mode must be signed, unsigned, or none" >&2
           exit 1
         fi
 
@@ -98,8 +98,13 @@ runs:
             ;;
         esac
 
-        if [[ "$INPUT_SIGNING_MODE" == "signed" && "$RUNNER_OS" == "Linux" ]]; then
-          echo "Signed mode is currently limited to macOS and Windows" >&2
+        if [[ "$RUNNER_OS" == "Linux" && "$INPUT_SIGNING_MODE" == "signed" ]]; then
+          echo "Linux has no authenticated updater trust or platform signing in this workflow; use signing_mode=none" >&2
+          exit 1
+        fi
+
+        if [[ "$RUNNER_OS" != "Linux" && "$INPUT_SIGNING_MODE" == "none" ]]; then
+          echo "signing_mode=none is only valid for Linux packaging; publication approval belongs in the caller workflow" >&2
           exit 1
         fi
 
@@ -111,7 +116,7 @@ runs:
           echo "MODELS_DEV_API_JSON=$GITHUB_WORKSPACE/packages/opencode/test/tool/fixtures/models-api.json"
           if [[ "$INPUT_SIGNING_MODE" == "signed" ]]; then
             echo "QUANTCODE_SIGNED_RELEASE=true"
-          else
+          elif [[ "$INPUT_SIGNING_MODE" == "unsigned" ]]; then
             echo "QUANTCODE_UNSIGNED_BUILD=true"
           fi
         } >> "$GITHUB_ENV"

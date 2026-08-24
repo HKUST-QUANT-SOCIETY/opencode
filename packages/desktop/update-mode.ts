@@ -31,7 +31,9 @@ export function resolveQuantCodeUpdateMode(
   environment: Environment = process.env,
   platform: NodeJS.Platform = process.platform,
 ): QuantCodeUpdateMode {
-  if (environment.QUANTCODE_SIGNED_RELEASE === "true") return "signed"
+  if (environment.QUANTCODE_SIGNED_RELEASE === "true" && (platform === "darwin" || platform === "win32")) {
+    return "signed"
+  }
 
   const appleSigning = hasValues(environment, [
     "APPLE_CERTIFICATE",
@@ -52,9 +54,9 @@ export function resolveQuantCodeUpdateMode(
 
   if ((platform === "darwin" && appleSigning) || (platform === "win32" && windowsSigning)) return "signed"
   if (environment.QUANTCODE_UNSIGNED_BUILD === "true") return "unsigned"
-  // Linux packages use electron-updater's SHA-512 metadata rather than
-  // platform code signing. Linux publishing is currently deferred, so this
-  // branch only preserves the mode for a future explicitly enabled release.
-  if (platform === "linux") return "signed"
+  // electron-builder's Linux SHA-512 metadata checks file integrity against
+  // the feed, but the feed itself has no independent trust anchor. Keep Linux
+  // updater trust disabled until signed metadata or an equivalent mechanism is
+  // implemented.
   return "disabled"
 }

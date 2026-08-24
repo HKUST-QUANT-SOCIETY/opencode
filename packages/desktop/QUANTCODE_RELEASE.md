@@ -1,24 +1,23 @@
 # QuantCode desktop release
 
-The `QuantCode desktop installers` workflow currently produces the supported
-macOS and Windows release targets:
+The `QuantCode desktop installers` workflow currently produces these supported
+release targets:
 
 - macOS Intel: DMG and ZIP
 - macOS Apple Silicon: DMG and ZIP
 - Windows x64: NSIS installer
+- Linux x64: AppImage, DEB, and RPM
 
-Linux packaging is intentionally deferred. The electron-builder and metadata
-code keeps the Linux targets available for a later release, but the active
-workflow does not spend a Linux runner or publish Linux assets. The current
-release set is eight macOS files and two Windows files, plus updater metadata
-and verification manifests.
+The active workflow validates four platform/architecture targets. Linux arm64
+support remains available in the build action and metadata finalizer, but it is
+not part of the active matrix or published asset set.
 
 The desktop source lives in the `HKUST-QUANT-SOCIETY/opencode` fork, while
 release assets target `HKUST-QUANT-SOCIETY/quantcode`. The workflow must be
 merged into the source repository's default `dev` branch before
 `workflow_dispatch` is available. A pull request runs unsigned packaging and
 the packaged-launch smoke test; a tag named `quantcode-vX.Y.Z`, or a manual
-dispatch from `dev` with `publish=true`, runs the signed release path.
+dispatch from `dev` with `publish=true`, runs the approved release path.
 
 The target repository is currently private. Browser or GitHub CLI login is not
 inherited by an installed Electron app, so an anonymous `electron-updater`
@@ -31,21 +30,25 @@ embed a long-lived repository PAT in the desktop bundle.
 
 The build embeds the tracked
 `packages/opencode/test/tool/fixtures/models-api.json` snapshot through
-`MODELS_DEV_API_JSON`. This keeps all three active targets reproducible when
+`MODELS_DEV_API_JSON`. This keeps all four active targets reproducible when
 `models.dev` is unavailable. Refresh that snapshot deliberately when the
 supported provider catalog changes, review the diff, and commit it with the
 release workflow change.
 
 ## Release signing
 
-Unsigned installers are used only for pull-request and artifact-only QA runs.
-Publishing fails closed unless all required signing and release credentials are
-present. Protect these GitHub environments with required reviewers before
-enabling `publish`:
+The `signing_mode=unsigned` profile is used only for pull-request and
+artifact-only QA runs. Linux release assets are platform-unsigned by design,
+but use the separate `signing_mode=none` profile behind release approval.
+Publishing fails closed unless every protected release job succeeds and all
+required macOS, Windows, and publishing credentials are present. Protect these
+GitHub environments with required reviewers before enabling `publish`:
 
 - `quantcode-release-macos`: Apple signing and notarization secrets only.
 - `quantcode-release-windows`: Azure Trusted Signing secrets only, plus OIDC
   approval for the Windows job.
+- `quantcode-release-linux`: approval only; it contains no platform signing or
+  publishing secret.
 - `quantcode-release-publish`: `QUANTCODE_RELEASE_TOKEN` only, for the release
   repository upload and final publication.
 
@@ -83,13 +86,29 @@ signs the NSIS executable with SHA-256, and verifies the installer and unpacked
 application signatures. The macOS jobs do not receive Azure credentials or
 OIDC write permission.
 
+### Linux
+
+The Linux x64 job uses the protected `quantcode-release-linux` environment, but
+it receives no Apple, Azure, or GitHub release credential. Linux has no platform
+code-signing provider in this workflow, and electron-builder SHA-512 metadata
+is an integrity check rather than an independent signature. Linux packages are
+therefore built with `signing_mode=none` and updater trust disabled; they do not
+claim an ELF, AppImage, DEB, RPM, or updater-metadata signature.
+
+Only the AppImage is represented in `latest-linux.yml`; DEB and RPM remain
+manual installation assets. Linux automatic updates must remain disabled until
+the client verifies signed metadata or an equivalent independent trust anchor.
+The current private release feed is disabled for Linux just as it is for macOS
+and Windows.
+
 QuantCode stores updater downloads under `quantcode-updater` and uses a
 separate `quantcode.updater` preference store, so an OpenCode installation
 cannot reuse or overwrite its update state. Signed macOS/Windows builds verify
-their platform signatures and disallow downgrade. The updater is enabled only
-when `QUANTCODE_UPDATE_MODE=signed` and `QUANTCODE_UPDATE_FEED=public`; the
-current private-repository release therefore remains disabled. Unsigned mode is
-only for local or artifact-only testing and must never be published.
+their platform signatures and disallow downgrade; Linux update metadata is
+generated for release consistency only. The updater is enabled only when
+`QUANTCODE_UPDATE_MODE=signed` and `QUANTCODE_UPDATE_FEED=public`; the current
+private-repository release therefore remains disabled. Unsigned mode is only
+for local or artifact-only testing and must never be published.
 
 ### GitHub release publishing
 
@@ -104,13 +123,14 @@ QuantCode-compatible WSL backend is published.
 
 ## Release process
 
-`Finalize release bundle` runs after either the unsigned PR matrix or all three
-signed targets. It validates the exact active installer set, verifies updater
+`Finalize release bundle` runs after either the unsigned PR matrix or all four
+release targets. It validates the exact active installer set, verifies updater
 metadata against local file names, sizes, and SHA-512 values, merges the two
 macOS feeds, and writes:
 
 - `latest-mac.yml` (both macOS architectures)
 - `latest.yml` (Windows x64)
+- `latest-linux.yml` (Linux x64 AppImage only)
 - `release-manifest.json` (source commit, workflow run, release tag, sizes, and SHA-256)
 - `SHA256SUMS` (packages and generated metadata)
 
@@ -134,9 +154,11 @@ then polls `/json/list` with bounded timeouts and verifies:
 - a two-second stable state before passing.
 
 The smoke process receives its PID so cleanup can terminate the complete
-process tree (`kill` on macOS and `taskkill /T /F` on Windows). The debug port
-is loopback-only, random per run, and never enabled by a normal packaged
-launch. There is no `QUANTCODE_PACKAGED_SMOKE` product flag.
+process tree (`kill` on macOS/Linux and `taskkill /T /F` on Windows). Linux runs
+the unpacked app under `xvfb-run`; the release action installs Xvfb and the DEB
+and RPM packaging tools on the Ubuntu runner. The debug port is loopback-only,
+random per run, and never enabled by a normal packaged launch. There is no
+`QUANTCODE_PACKAGED_SMOKE` product flag.
 
 Run an artifact-only build from the default branch with:
 
@@ -145,13 +167,14 @@ gh workflow run quantcode-desktop.yml -R HKUST-QUANT-SOCIETY/opencode -f version
 ```
 
 For pull requests, inspect `Finalize release bundle` and its
-`release-metadata` artifact in addition to the three target jobs. A green
+`release-metadata` artifact in addition to the four target jobs. A green
 packaging job without finalization is not release evidence.
 
-Before a signed publish, verify the environment approval and every secret
-above. After download, verify the checksum manifest on macOS with
-`shasum -a 256 -c SHA256SUMS`; on Windows use
-`Get-FileHash -Algorithm SHA256` and compare the result with `SHA256SUMS`.
+Before a publish, verify every environment approval and required secret above.
+After download, verify the checksum manifest on macOS with
+`shasum -a 256 -c SHA256SUMS`, on Linux with
+`sha256sum -c SHA256SUMS`, and on Windows with
+`Get-FileHash -Algorithm SHA256` compared with `SHA256SUMS`.
 
 ## Local macOS package
 
@@ -185,9 +208,22 @@ The installer is written to `dist/quantcode-<version>-win-x64.exe`; the
 unpacked application used by CI is under `dist/*-unpacked/QuantCode.exe`. A
 local unsigned package is for QA only and may trigger SmartScreen.
 
-## Linux status
+## Local Linux package
 
-Linux is not part of the current release target. Its electron-builder targets,
-updater merger, and tests remain in the repository so a later change can
-enable Linux deliberately after runner capacity and desktop smoke coverage are
-validated. Do not advertise or publish the Linux outputs from this workflow.
+From `packages/desktop` on x64 Linux:
+
+```bash
+export OPENCODE_CHANNEL=quantcode
+export QUANTCODE_UNSIGNED_BUILD=true
+export QUANTCODE_UPDATE_FEED=disabled
+export MODELS_DEV_API_JSON=../opencode/test/tool/fixtures/models-api.json
+bun run build
+bun run package:linux
+```
+
+The outputs are `dist/quantcode-<version>-linux-x86_64.AppImage`,
+`dist/quantcode-<version>-linux-amd64.deb`, and
+`dist/quantcode-<version>-linux-x86_64.rpm`. The unpacked application used by
+CI is `dist/linux-unpacked/quantcode`. Run it in a graphical session or under
+`xvfb-run` for headless smoke testing. Local outputs are unsigned QA packages;
+the protected Linux CI job is the source of publishable release assets.

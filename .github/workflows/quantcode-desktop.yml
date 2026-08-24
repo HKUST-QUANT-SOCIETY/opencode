@@ -110,6 +110,11 @@ jobs:
             target: x86_64-pc-windows-msvc
             platform: --win --x64
             install: --os=win32 --cpu=x64
+          - name: Linux x64
+            runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            platform: --linux --x64
+            install: --os=linux --cpu=x64
 
     steps:
       - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3.6.0
@@ -189,18 +194,42 @@ jobs:
           azure_trusted_signing_endpoint: ${{ secrets.AZURE_TRUSTED_SIGNING_ENDPOINT }}
           azure_trusted_signing_publisher_name: ${{ secrets.AZURE_TRUSTED_SIGNING_PUBLISHER_NAME }}
 
+  # Linux has neither a platform code-signing provider nor an independent
+  # updater trust anchor in this workflow. Publish only after environment
+  # approval, but compile the client with automatic updates disabled.
+  build_release_linux:
+    needs: version
+    if: needs.version.outputs.publish == 'true'
+    name: Release / Linux x64
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    environment: quantcode-release-linux
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3.6.0
+      - uses: ./.github/actions/build-quantcode-desktop
+        with:
+          release_version: ${{ needs.version.outputs.version }}
+          rust_target: x86_64-unknown-linux-gnu
+          platform: --linux --x64
+          install_flags: --os=linux --cpu=x64
+          signing_mode: none
+          update_feed: disabled
+
   finalize:
     needs:
       - version
       - build_unsigned
       - build_signed_macos
       - build_signed_windows
+      - build_release_linux
     if: >-
       ${{ always() && needs.version.result == 'success' &&
           ((needs.build_unsigned.result == 'success' && needs.build_signed_macos.result == 'skipped' &&
-            needs.build_signed_windows.result == 'skipped') ||
+            needs.build_signed_windows.result == 'skipped' && needs.build_release_linux.result == 'skipped') ||
            (needs.build_unsigned.result == 'skipped' && needs.build_signed_macos.result == 'success' &&
-            needs.build_signed_windows.result == 'success')) }}
+            needs.build_signed_windows.result == 'success' && needs.build_release_linux.result == 'success')) }}
     name: Finalize release bundle
     runs-on: ubuntu-24.04
     permissions:
@@ -240,7 +269,7 @@ jobs:
           SOURCE_REF: ${{ github.ref }}
           WORKFLOW_RUN_ID: ${{ github.run_id }}
           WORKFLOW_RUN_ATTEMPT: ${{ github.run_attempt }}
-          REQUIRED_TARGETS: aarch64-apple-darwin,x86_64-apple-darwin,x86_64-pc-windows-msvc
+          REQUIRED_TARGETS: aarch64-apple-darwin,x86_64-apple-darwin,x86_64-pc-windows-msvc,x86_64-unknown-linux-gnu
         run: bun packages/desktop/scripts/finalize-latest-yml.ts
 
       - name: Upload finalized release metadata
@@ -255,10 +284,12 @@ jobs:
       - version
       - build_signed_macos
       - build_signed_windows
+      - build_release_linux
       - finalize
     if: >-
       ${{ always() && needs.version.outputs.publish == 'true' && needs.build_signed_macos.result == 'success' &&
-          needs.build_signed_windows.result == 'success' && needs.finalize.result == 'success' }}
+          needs.build_signed_windows.result == 'success' && needs.build_release_linux.result == 'success' &&
+          needs.finalize.result == 'success' }}
     runs-on: ubuntu-24.04
     environment: quantcode-release-publish
     permissions:
