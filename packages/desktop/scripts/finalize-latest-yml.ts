@@ -15,6 +15,13 @@ if (!version) throw new Error("OPENCODE_VERSION is required")
 const releaseAssetDir = process.env.RELEASE_ASSET_DIR
 const upload = process.env.UPLOAD_RELEASE_METADATA !== "false"
 const tag = process.env.RELEASE_TAG || `v${version}`
+const releaseSigned = booleanEnvironment("RELEASE_SIGNED", false)
+const publishRequested = booleanEnvironment("PUBLISH_REQUESTED", false)
+const updateFeed = process.env.RELEASE_UPDATE_FEED ?? "disabled"
+if (updateFeed !== "public" && updateFeed !== "disabled") {
+  throw new Error(`Invalid RELEASE_UPDATE_FEED: ${updateFeed}`)
+}
+if (publishRequested && !releaseSigned) throw new Error("Publishing requires RELEASE_SIGNED=true")
 
 type FileEntry = {
   url: string
@@ -274,7 +281,7 @@ if (releaseAssetDir) {
   const workflowRunId = process.env.WORKFLOW_RUN_ID ?? process.env.GITHUB_RUN_ID ?? "local"
   const serverUrl = process.env.GITHUB_SERVER_URL ?? "https://github.com"
   const manifest = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     product: "QuantCode",
     version,
     source: {
@@ -290,6 +297,16 @@ if (releaseAssetDir) {
     release: {
       repository: process.env.TARGET_REPOSITORY ?? process.env.GH_REPO ?? "HKUST-QUANT-SOCIETY/quantcode",
       tag,
+    },
+    distribution: {
+      releaseClass: releaseSigned ? "approved-release" : "qa-unsigned",
+      publishRequested,
+      updateFeed,
+      platformTrust: {
+        macos: releaseSigned ? "developer-id-notarized" : "unsigned-qa",
+        windows: releaseSigned ? "azure-trusted-signing" : "unsigned-qa",
+        linux: releaseSigned ? "approved-platform-unsigned" : "unsigned-qa",
+      },
     },
     assets: await Promise.all(
       manifestFiles.map(async (file) => ({
@@ -358,4 +375,12 @@ async function digest(file: string, algorithm: "sha256" | "sha512", encoding: "h
   const hash = createHash(algorithm)
   for await (const chunk of createReadStream(file)) hash.update(chunk)
   return hash.digest(encoding)
+}
+
+function booleanEnvironment(name: string, fallback: boolean) {
+  const value = process.env[name]
+  if (value === undefined || value === "") return fallback
+  if (value === "true") return true
+  if (value === "false") return false
+  throw new Error(`${name} must be true or false`)
 }

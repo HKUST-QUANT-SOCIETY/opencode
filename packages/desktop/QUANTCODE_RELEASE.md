@@ -1,5 +1,8 @@
 # QuantCode desktop release
 
+Member-facing install and manual-upgrade steps are documented in
+[`QUANTCODE_INSTALL.md`](./QUANTCODE_INSTALL.md).
+
 The `QuantCode desktop installers` workflow currently produces these supported
 release targets:
 
@@ -135,7 +138,7 @@ macOS feeds, and writes:
 - `latest-mac.yml` (both macOS architectures)
 - `latest.yml` (Windows x64)
 - `latest-linux.yml` (Linux x64 AppImage only)
-- `release-manifest.json` (source commit, workflow run, release tag, sizes, and SHA-256)
+- `release-manifest.json` (schema v2 source, release, per-platform trust policy, sizes, and SHA-256)
 - `SHA256SUMS` (packages and generated metadata)
 
 The public source repository then uses GitHub OIDC and `actions/attest` to

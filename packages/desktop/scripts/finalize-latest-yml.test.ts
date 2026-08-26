@@ -147,6 +147,30 @@ test("fails closed when a required target metadata file is missing", async () =>
   }
 })
 
+test("refuses a publish manifest unless the release path was signed", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "quantcode-release-policy-"))
+
+  try {
+    const child = Bun.spawn(["bun", script], {
+      env: {
+        ...process.env,
+        LATEST_YML_DIR: root,
+        OPENCODE_VERSION: "1.2.3",
+        RELEASE_SIGNED: "false",
+        PUBLISH_REQUESTED: "true",
+      },
+      stdout: "pipe",
+      stderr: "pipe",
+    })
+    const [exitCode, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()])
+
+    expect(exitCode).not.toBe(0)
+    expect(stderr).toContain("Publishing requires RELEASE_SIGNED=true")
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test("validates the complete installer set and writes SHA256SUMS before upload", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "quantcode-release-assets-"))
   const metadataRoot = path.join(root, "metadata")
@@ -224,13 +248,59 @@ test("validates the complete installer set and writes SHA256SUMS before upload",
 
     const manifest = await Bun.file(path.join(finalizedRoot, "release-manifest.json")).json()
     expect(manifest).toMatchObject({
-      schemaVersion: 1,
+      schemaVersion: 2,
       product: "QuantCode",
       version: "1.2.3",
       release: { repository: "HKUST-QUANT-SOCIETY/quantcode", tag: "v1.2.3" },
+      distribution: {
+        releaseClass: "qa-unsigned",
+        publishRequested: false,
+        updateFeed: "disabled",
+        platformTrust: {
+          macos: "unsigned-qa",
+          windows: "unsigned-qa",
+          linux: "unsigned-qa",
+        },
+      },
     })
     expect(manifest.assets).toHaveLength(12)
     expect(manifest.assets.map((asset: { name: string }) => asset.name)).toContain("latest-mac.yml")
+
+    const approvedRoot = path.join(root, "approved")
+    const approved = Bun.spawn(["bun", script], {
+      env: {
+        ...process.env,
+        LATEST_YML_DIR: metadataRoot,
+        RELEASE_ASSET_DIR: assetRoot,
+        FINALIZED_YML_DIR: approvedRoot,
+        UPLOAD_RELEASE_METADATA: "false",
+        OPENCODE_VERSION: "1.2.3",
+        REQUIRED_TARGETS: "aarch64-apple-darwin,x86_64-apple-darwin,x86_64-pc-windows-msvc",
+        RELEASE_SIGNED: "true",
+        PUBLISH_REQUESTED: "true",
+      },
+      stdout: "pipe",
+      stderr: "pipe",
+    })
+    const [approvedExit, approvedError] = await Promise.all([
+      approved.exited,
+      new Response(approved.stderr).text(),
+    ])
+    expect(approvedExit).toBe(0)
+    expect(approvedError).toBe("")
+    expect(await Bun.file(path.join(approvedRoot, "release-manifest.json")).json()).toMatchObject({
+      schemaVersion: 2,
+      distribution: {
+        releaseClass: "approved-release",
+        publishRequested: true,
+        updateFeed: "disabled",
+        platformTrust: {
+          macos: "developer-id-notarized",
+          windows: "azure-trusted-signing",
+          linux: "approved-platform-unsigned",
+        },
+      },
+    })
   } finally {
     await rm(root, { recursive: true, force: true })
   }

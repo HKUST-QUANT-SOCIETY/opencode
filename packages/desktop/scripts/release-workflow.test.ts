@@ -17,6 +17,17 @@ describe("QuantCode desktop release workflow contract", () => {
     expect(workflow).toContain("if: needs.version.outputs.sign == 'true'")
     expect(workflow).toContain('if [[ "$publish" == "true" ]]; then sign=true; fi')
     expect(workflow).toContain("needs.version.outputs.publish == 'true'")
+    expect(workflow).toContain("RELEASE_SIGNED: ${{ needs.version.outputs.sign }}")
+    expect(workflow).toContain("PUBLISH_REQUESTED: ${{ needs.version.outputs.publish }}")
+  })
+
+  test("refuses to publish an unsigned or policy-mismatched release manifest", () => {
+    expect(workflow).toContain("Verify approved release policy")
+    expect(workflow).toContain('.schemaVersion == 2')
+    expect(workflow).toContain('.distribution.releaseClass == "approved-release"')
+    expect(workflow).toContain('.distribution.platformTrust.macos == "developer-id-notarized"')
+    expect(workflow).toContain('.distribution.platformTrust.windows == "azure-trusted-signing"')
+    expect(workflow).toContain('.distribution.platformTrust.linux == "approved-platform-unsigned"')
   })
 
   test("attests finalized installer provenance in the public source repository", () => {

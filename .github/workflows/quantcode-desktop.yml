@@ -284,6 +284,9 @@ jobs:
           SOURCE_REF: ${{ github.ref }}
           WORKFLOW_RUN_ID: ${{ github.run_id }}
           WORKFLOW_RUN_ATTEMPT: ${{ github.run_attempt }}
+          RELEASE_SIGNED: ${{ needs.version.outputs.sign }}
+          PUBLISH_REQUESTED: ${{ needs.version.outputs.publish }}
+          RELEASE_UPDATE_FEED: disabled
           REQUIRED_TARGETS: aarch64-apple-darwin,x86_64-apple-darwin,x86_64-pc-windows-msvc,x86_64-unknown-linux-gnu
         run: bun packages/desktop/scripts/finalize-latest-yml.ts
 
@@ -333,6 +336,19 @@ jobs:
         with:
           name: release-metadata
           path: release-finalized
+
+      - name: Verify approved release policy
+        shell: bash
+        run: |
+          jq -e '
+            .schemaVersion == 2 and
+            .distribution.releaseClass == "approved-release" and
+            .distribution.publishRequested == true and
+            .distribution.updateFeed == "disabled" and
+            .distribution.platformTrust.macos == "developer-id-notarized" and
+            .distribution.platformTrust.windows == "azure-trusted-signing" and
+            .distribution.platformTrust.linux == "approved-platform-unsigned"
+          ' release-finalized/release-manifest.json >/dev/null
 
       - name: Stage draft GitHub Release
         id: stage
