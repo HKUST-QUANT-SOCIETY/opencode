@@ -1099,6 +1099,108 @@
   }
 }
 
+@media (max-width: 520px) {
+  .qc-identity-bar {
+    gap: 8px;
+    padding: 0 12px;
+    font-size: 10px;
+  }
+
+  .qc-identity,
+  .qc-environment {
+    min-width: 0;
+  }
+
+  .qc-identity {
+    flex: 1 1 auto;
+  }
+
+  .qc-identity > span,
+  .qc-environment > span:first-child {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .qc-identity > span {
+    max-width: 106px;
+  }
+
+  .qc-environment {
+    flex: 0 1 auto;
+    gap: 6px;
+  }
+
+  .qc-environment > span:first-child {
+    max-width: 92px;
+  }
+
+  .qc-compose-zone,
+  .qc-recents {
+    width: calc(100% - 24px);
+  }
+
+  .qc-composer {
+    padding: 16px;
+  }
+
+  .qc-composer-actions {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    padding-top: 8px;
+  }
+
+  .qc-skill-select {
+    position: static;
+    order: 0;
+    justify-content: space-between;
+    padding-top: 9px;
+    border-top: 1px solid rgba(18, 18, 18, 0.12);
+  }
+
+  .qc-skill-select select {
+    max-width: min(190px, 68vw);
+  }
+
+  .qc-submit-cluster {
+    order: 1;
+    width: 100%;
+  }
+
+  .qc-submit-cluster button {
+    position: static;
+    width: 100%;
+    min-width: 0;
+    height: 42px;
+  }
+
+  .qc-recent-row {
+    grid-template-columns: 26px minmax(0, 1fr) 18px;
+    gap: 8px;
+    min-height: 58px;
+  }
+
+  .qc-recent-copy {
+    grid-column: 2;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 3px;
+  }
+
+  .qc-recent-copy strong,
+  .qc-recent-copy small {
+    max-width: 100%;
+  }
+
+  .qc-detail-panel {
+    top: 58px;
+    right: 10px;
+    bottom: 10px;
+    width: calc(100vw - 80px);
+    border-radius: 16px;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .qc-particle-field,
   .qc-focus-lens,

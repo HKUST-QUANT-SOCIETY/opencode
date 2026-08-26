@@ -63,7 +63,7 @@ import {
 import { isSessionNotFoundError } from "./utils/server-errors"
 
 import Session from "@/pages/session"
-import { NewHome, LegacyHome } from "@/pages/home"
+import { NewHome, LegacyHome, QuantCodeHome } from "@/pages/home"
 
 const NewSession = lazy(() => import("@/pages/new-session"))
 
@@ -605,15 +605,27 @@ function Routes() {
 
   return (
     <>
-      <Route component={LegacyServerLayout}>
-        <Show when={!settings.general.newLayoutDesigns()}>{<Route path="/" component={LegacyHome} />}</Show>
+      <Show when={!isQuantCode}>
+        <Route component={LegacyServerLayout}>
+          <Show when={!settings.general.newLayoutDesigns()}>{<Route path="/" component={LegacyHome} />}</Show>
+          <Route path="/:dir" component={DirectoryLayout}>
+            <Route path="/" component={() => <Navigate href="session" />} />
+            <Route path="/session/:id?" component={SessionRoute} />
+          </Route>
+        </Route>
+      </Show>
+      <Show when={isQuantCode}>
+        <Route path="/" component={QuantCodeHome} />
         <Route path="/:dir" component={DirectoryLayout}>
           <Route path="/" component={() => <Navigate href="session" />} />
           <Route path="/session/:id?" component={SessionRoute} />
         </Route>
-      </Route>
-      <Show when={settings.general.newLayoutDesigns()}>
+      </Show>
+      <Show when={!isQuantCode && settings.general.newLayoutDesigns()}>
         <Route path="/" component={NewHome} />
+        <Route path="/:dir/session/:id" component={LegacyTargetSessionRoute} />
+      </Show>
+      <Show when={isQuantCode}>
         <Route path="/:dir/session/:id" component={LegacyTargetSessionRoute} />
       </Show>
       <Route path="/new-session" component={DraftRoute} />

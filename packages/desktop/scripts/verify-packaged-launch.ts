@@ -25,6 +25,7 @@ type RendererState = {
   product?: string
   fatalError?: boolean
   interactiveControls?: number
+  quantcodeWorkspace?: boolean
   sidecarUrl?: string
   sidecarHealthy?: boolean
   error?: string
@@ -143,6 +144,7 @@ async function evaluate(target: DevToolsTarget) {
                     userAgent: navigator.userAgent,
                     icon: document.querySelector('link[rel="icon"]')?.href ?? "",
                     product: document.body?.dataset.product,
+                    quantcodeWorkspace: Boolean(document.querySelector('[data-quantcode-workspace="true"]')),
                     fatalError: Boolean(document.querySelector('[data-page="error"]')),
                     interactiveControls: document.querySelectorAll("button, a[href], input, textarea, select").length,
                     sidecarUrl: sidecar.url,
@@ -181,6 +183,7 @@ function validateState(target: DevToolsTarget, state: RendererState) {
   if (!state.userAgent?.includes("Electron/")) return `renderer is not Electron: ${state.userAgent ?? "<empty>"}`
   if (!state.icon?.endsWith("/quantcode-icon.png")) return `unexpected product icon: ${state.icon ?? "<empty>"}`
   if (state.product !== "quantcode") return `unexpected product marker: ${state.product ?? "<missing>"}`
+  if (!state.quantcodeWorkspace) return "renderer did not mount the QuantCode research workspace"
   if (state.fatalError) return `renderer reached the fatal error page: ${state.bodyText ?? ""}`
   if ((state.interactiveControls ?? 0) < 1) return "renderer has not reached an interactive application surface"
   if (!state.sidecarHealthy) return `sidecar health check failed: ${state.sidecarUrl ?? "<missing URL>"}`

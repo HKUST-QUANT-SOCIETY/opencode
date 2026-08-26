@@ -2,6 +2,45 @@
   user-select: none;
 }
 
+[data-quantcode-titlebar] {
+  color: var(--v2-text-text-base);
+  user-select: none;
+}
+
+.titlebar-quantcode-mark {
+  display: inline-grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  color: #f7f7f5;
+  background: #111111;
+  border-radius: 6px;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: -0.08em;
+}
+
+.titlebar-quantcode-name {
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.titlebar-quantcode-context,
+.titlebar-quantcode-mode {
+  color: var(--v2-text-text-muted);
+  font-size: 11px;
+}
+
+.titlebar-quantcode-mode {
+  padding-right: 3px;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
 [data-slot="titlebar-tab-item"] a {
   outline: none;
 }

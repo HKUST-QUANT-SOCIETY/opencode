@@ -402,8 +402,17 @@ function SettingsPanel(props: {
   )
 }
 
-export function QuantCodePanel(props: { onClose?: () => void } = {}): JSX.Element {
-  const prompt = usePrompt()
+export type QuantCodePanelProps = {
+  onClose?: () => void
+  /**
+   * Root-home entry point. Session panels keep the default prompt bridge;
+   * the standalone home delegates submission to the draft/session router.
+   */
+  onSubmitInstruction?: (content: string) => void | boolean | Promise<boolean | void>
+}
+
+export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
+  const prompt = props.onSubmitInstruction ? undefined : usePrompt()
   const server = useServer()
   const [state, setState] = createStore({
     view: "compose" as DetailView,
@@ -474,6 +483,23 @@ export function QuantCodePanel(props: { onClose?: () => void } = {}): JSX.Elemen
 
   const submitInstruction = (content: string, nextView: DetailView = "compose") => {
     setState({ submit: "starting", error: "" })
+
+    if (props.onSubmitInstruction) {
+      Promise.resolve(props.onSubmitInstruction(content)).then((accepted) => {
+        if (accepted === false) {
+          setState({ submit: "error", error: "请先连接研究服务器并选择一个项目。" })
+          return
+        }
+        setState({ view: nextView, submit: "submitted" })
+      })
+      return
+    }
+
+    if (!prompt) {
+      setState({ submit: "error", error: "研究输入尚未就绪，请稍后重试。" })
+      return
+    }
+
     prompt.set([{ type: "text", content, start: 0, end: content.length }], content.length)
 
     requestAnimationFrame(() => {
@@ -537,7 +563,7 @@ export function QuantCodePanel(props: { onClose?: () => void } = {}): JSX.Elemen
   ]
 
   return (
-    <div ref={shell} class="qc-shell">
+    <div ref={shell} class="qc-shell" data-quantcode-workspace="true">
       <a class="qc-skip-link" href="#qc-research-prompt">
         跳到研究输入
       </a>

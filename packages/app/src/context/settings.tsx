@@ -2,6 +2,7 @@ import { createStore, reconcile } from "solid-js/store"
 import { createEffect, createMemo } from "solid-js"
 import { createSimpleContext } from "@opencode-ai/ui/context"
 import { persisted } from "@/utils/persist"
+import { isQuantCode } from "@/brand"
 
 export interface NotificationSettings {
   agent: boolean
@@ -160,7 +161,11 @@ export const { use: useSettings, provider: SettingsProvider } = createSimpleCont
       () => store.general?.showCustomAgents,
       defaultSettings.general.showCustomAgents,
     )
-    const newLayoutDesigns = withFallback(() => store.general?.newLayoutDesigns, newLayoutDesignsDefault)
+    const configuredNewLayoutDesigns = withFallback(() => store.general?.newLayoutDesigns, newLayoutDesignsDefault)
+    // QuantCode's product surface is the new research workspace. A stale
+    // OpenCode-era preference must not route a QuantCode install back to the
+    // legacy empty-session shell.
+    const newLayoutDesigns = createMemo(() => isQuantCode || configuredNewLayoutDesigns())
     const visible = (preference: () => boolean) => createMemo(() => !newLayoutDesigns() || preference())
 
     createEffect(() => {
@@ -250,6 +255,7 @@ export const { use: useSettings, provider: SettingsProvider } = createSimpleCont
         },
         newLayoutDesigns,
         setNewLayoutDesigns(value: boolean) {
+          if (isQuantCode) return
           setStore("general", "newLayoutDesigns", value)
         },
       },

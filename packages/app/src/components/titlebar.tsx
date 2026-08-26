@@ -27,6 +27,7 @@ import { ServerConnection, useServer } from "@/context/server"
 import { tabKey, useTabs } from "@/context/tabs"
 import "./titlebar.css"
 import { newTabTooltipKeybind } from "./command-tooltip-keybind"
+import { isQuantCode, PRODUCT_NAME } from "@/brand"
 
 type TauriDesktopWindow = {
   startDragging?: () => Promise<void>
@@ -60,7 +61,7 @@ export type TitlebarUpdate = {
   install: () => void
 }
 
-export function Titlebar(props: { update?: TitlebarUpdate }) {
+export function Titlebar(props: { update?: TitlebarUpdate; compactQuantCodeHome?: boolean }) {
   const layout = useLayout()
   const platform = usePlatform()
   const command = useCommand()
@@ -241,6 +242,17 @@ export function Titlebar(props: { update?: TitlebarUpdate }) {
       onDblClick={maximize}
     >
       <Switch>
+        <Match when={props.compactQuantCodeHome && isQuantCode}>
+          <div class="h-full flex-1 flex flex-row items-center gap-3 px-3 md:pr-4 md:pl-5" data-quantcode-titlebar>
+            <span class="titlebar-quantcode-mark" aria-hidden="true">
+              QC
+            </span>
+            <strong class="titlebar-quantcode-name">{PRODUCT_NAME}</strong>
+            <span class="titlebar-quantcode-context">Research workspace</span>
+            <div class="flex-1" />
+            <span class="titlebar-quantcode-mode">Multi-Agent research</span>
+          </div>
+        </Match>
         <Match when={useV2Titlebar()}>
           {(_) => {
             const layout = useLayout()

@@ -4,6 +4,7 @@ const root = new URL("../../..", import.meta.url).pathname
 const workflow = await Bun.file(`${root}/.github/workflows/quantcode-desktop.yml`).text()
 const action = await Bun.file(`${root}/.github/actions/build-quantcode-desktop/action.yml`).text()
 const setupBun = await Bun.file(`${root}/.github/actions/setup-bun/action.yml`).text()
+const packagedSmoke = await Bun.file(`${root}/packages/desktop/scripts/verify-packaged-launch.ts`).text()
 
 describe("QuantCode desktop release workflow contract", () => {
   test("serializes and safely resumes publication by release tag", () => {
@@ -47,6 +48,11 @@ describe("QuantCode desktop release workflow contract", () => {
     expect(action).toContain("rpm -qlp")
     expect(action).toContain('dpkg-deb --fsys-tarfile "$deb" | tar -xOf -')
     expect(action).not.toContain('dpkg-deb --fsys-tarfile "$deb" | tar -xOJf -')
+  })
+
+  test("fails packaged smoke when the QuantCode research workspace is missing", () => {
+    expect(packagedSmoke).toContain('[data-quantcode-workspace="true"]')
+    expect(packagedSmoke).toContain("renderer did not mount the QuantCode research workspace")
   })
 
   test("rebuilds installers for changes anywhere in the workspace dependency graph", () => {
