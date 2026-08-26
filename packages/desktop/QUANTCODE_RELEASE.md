@@ -59,6 +59,37 @@ GitHub environments with required reviewers before enabling `publish`:
 - `quantcode-release-publish`: `QUANTCODE_RELEASE_TOKEN` only, for the release
   repository upload and final publication.
 
+### Provisioning checklist
+
+Provision these materials directly in the named GitHub Environment. Do not put
+a certificate, API key, private key, or release token in a pull request, issue,
+chat message, workflow input, or local configuration committed to the repo.
+
+1. **Apple Developer ID and notarization**: create a Developer ID Application
+   certificate for `org.hkust.quantcode`, export its `.p12`, and create an App
+   Store Connect API key authorized for notarization. Base64-encode the `.p12`
+   only for the `APPLE_CERTIFICATE` environment secret. Store the `.p12`
+   password and `.p8` contents in their separate secrets.
+2. **Azure Trusted Signing**: create an Entra application and a federated
+   credential constrained to
+   `repo:HKUST-QUANT-SOCIETY/opencode:environment:quantcode-release-windows`.
+   Grant it only the Azure Trusted Signing permissions required by the selected
+   account and certificate profile. Record the exact certificate Subject DN in
+   `AZURE_TRUSTED_SIGNING_PUBLISHER_NAME`; the workflow rejects a different
+   signer on either `QuantCode.exe` or the NSIS installer.
+3. **Private release publisher**: create a short-lived fine-grained token for
+   `HKUST-QUANT-SOCIETY/quantcode` with only Contents read/write permission.
+   Store it as `QUANTCODE_RELEASE_TOKEN` in `quantcode-release-publish`, not
+   at repository or organization scope. The build jobs never receive it.
+4. **Approval path**: keep `dev` and `quantcode-v*` as the only deployment
+   sources for every release environment, and approve the macOS, Windows,
+   Linux, and publish environments separately for a signed run.
+
+After provisioning, first dispatch `sign=true,publish=false` from `dev` and
+verify the signed macOS/Windows jobs, Apple stapling, Azure signature Subject
+DN, schema-v2 `approved-release` manifest, and provenance. Only then dispatch
+or tag a run with `publish=true`.
+
 ### macOS
 
 The two macOS jobs use these `quantcode-release-macos` environment secrets:
