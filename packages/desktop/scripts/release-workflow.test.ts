@@ -52,4 +52,10 @@ describe("QuantCode desktop release workflow contract", () => {
     expect(workflow).toContain('- "packages/**"')
     expect(workflow).toContain('- "script/sign-windows.ps1"')
   })
+
+  test("uses the native Node 24 checkout action for every release job", () => {
+    const checkout = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1"
+    expect(workflow.match(new RegExp(checkout.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"))).toHaveLength(7)
+    expect(workflow).not.toContain("# v3.6.0")
+  })
 })

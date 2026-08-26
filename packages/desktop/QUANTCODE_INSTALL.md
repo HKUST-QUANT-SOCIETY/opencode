@@ -29,23 +29,23 @@ with `SHA256SUMS` before opening it:
 
 ```bash
 # macOS
-shasum -a 256 <installer>
+shasum -a 256 ./quantcode-0.1.0-mac-arm64.dmg
 
 # Linux
-sha256sum <installer>
+sha256sum ./quantcode-0.1.0-linux-x86_64.AppImage
 ```
 
 On Windows PowerShell:
 
 ```powershell
-Get-FileHash -Algorithm SHA256 .\quantcode-<version>-win-x64.exe
+Get-FileHash -Algorithm SHA256 .\quantcode-0.1.0-win-x64.exe
 ```
 
 Compare the printed value with the matching `SHA256SUMS` line. With GitHub CLI
 installed, verify source-workflow provenance as well:
 
 ```bash
-gh attestation verify <installer> -R HKUST-QUANT-SOCIETY/opencode
+gh attestation verify ./quantcode-0.1.0-mac-arm64.dmg -R HKUST-QUANT-SOCIETY/opencode
 ```
 
 The macOS manifest must report `developer-id-notarized`; the Windows manifest
@@ -72,20 +72,20 @@ publisher recorded in the release manifest.
 For AppImage:
 
 ```bash
-chmod +x quantcode-<version>-linux-x86_64.AppImage
-./quantcode-<version>-linux-x86_64.AppImage
+chmod +x quantcode-0.1.0-linux-x86_64.AppImage
+./quantcode-0.1.0-linux-x86_64.AppImage
 ```
 
 For Debian/Ubuntu:
 
 ```bash
-sudo apt install ./quantcode-<version>-linux-amd64.deb
+sudo apt install ./quantcode-0.1.0-linux-amd64.deb
 ```
 
 For Fedora/RHEL:
 
 ```bash
-sudo dnf install ./quantcode-<version>-linux-x86_64.rpm
+sudo dnf install ./quantcode-0.1.0-linux-x86_64.rpm
 ```
 
 ## Connect your workspace
