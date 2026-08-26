@@ -12,6 +12,11 @@ on:
         required: true
         default: false
         type: boolean
+      sign:
+        description: "Build signed/approved release artifacts without necessarily publishing"
+        required: true
+        default: false
+        type: boolean
   push:
     tags:
       - "quantcode-v*"
@@ -23,9 +28,9 @@ on:
       - ".github/actions/build-quantcode-desktop/**"
       - ".github/actions/setup-bun/**"
       - ".github/workflows/quantcode-desktop.yml"
-      - "packages/app/**"
-      - "packages/desktop/**"
-      - "packages/opencode/**"
+      - "packages/**"
+      - "script/dev-quantcode.ts"
+      - "script/sign-windows.ps1"
       - "package.json"
       - "bun.lock"
 
@@ -43,6 +48,7 @@ jobs:
       version: ${{ steps.release.outputs.version }}
       tag: ${{ steps.release.outputs.tag }}
       publish: ${{ steps.release.outputs.publish }}
+      sign: ${{ steps.release.outputs.sign }}
       prerelease: ${{ steps.release.outputs.prerelease }}
     steps:
       - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3.6.0
@@ -58,11 +64,13 @@ jobs:
         env:
           INPUT_VERSION: ${{ inputs.version }}
           INPUT_PUBLISH: ${{ inputs.publish }}
+          INPUT_SIGN: ${{ inputs.sign }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
             version="${GITHUB_REF_NAME#quantcode-v}"
             publish=true
+            sign=true
             if ! git merge-base --is-ancestor "$GITHUB_SHA" "origin/$DEFAULT_BRANCH"; then
               echo "Release tag $GITHUB_REF_NAME must point to a commit reachable from $DEFAULT_BRANCH" >&2
               exit 1
@@ -70,10 +78,13 @@ jobs:
           else
             version="${INPUT_VERSION:-0.1.${GITHUB_RUN_NUMBER}}"
             publish="${INPUT_PUBLISH:-false}"
+            sign="${INPUT_SIGN:-false}"
           fi
 
-          if [[ "$publish" == "true" && "$GITHUB_REF_TYPE" != "tag" && "$GITHUB_REF_NAME" != "$DEFAULT_BRANCH" ]]; then
-            echo "Publishing is restricted to tags or the default branch ($DEFAULT_BRANCH)" >&2
+          if [[ "$publish" == "true" ]]; then sign=true; fi
+
+          if [[ "$sign" == "true" && "$GITHUB_REF_TYPE" != "tag" && "$GITHUB_REF_NAME" != "$DEFAULT_BRANCH" ]]; then
+            echo "Signed release builds are restricted to tags or the default branch ($DEFAULT_BRANCH)" >&2
             exit 1
           fi
 
@@ -81,11 +92,12 @@ jobs:
             bun packages/desktop/scripts/release-version.ts "$version"
             echo "tag=quantcode-v$version"
             echo "publish=$publish"
+            echo "sign=$sign"
           } >> "$GITHUB_OUTPUT"
 
   build_unsigned:
     needs: version
-    if: needs.version.outputs.publish != 'true'
+    if: needs.version.outputs.sign != 'true'
     permissions:
       contents: read
     name: Unsigned / ${{ matrix.name }}
@@ -129,7 +141,7 @@ jobs:
 
   build_signed_macos:
     needs: version
-    if: needs.version.outputs.publish == 'true'
+    if: needs.version.outputs.sign == 'true'
     name: Signed / ${{ matrix.name }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 75
@@ -168,7 +180,7 @@ jobs:
 
   build_signed_windows:
     needs: version
-    if: needs.version.outputs.publish == 'true'
+    if: needs.version.outputs.sign == 'true'
     name: Signed / Windows x64
     runs-on: windows-2025
     timeout-minutes: 75
@@ -199,7 +211,7 @@ jobs:
   # approval, but compile the client with automatic updates disabled.
   build_release_linux:
     needs: version
-    if: needs.version.outputs.publish == 'true'
+    if: needs.version.outputs.sign == 'true'
     name: Release / Linux x64
     runs-on: ubuntu-24.04
     timeout-minutes: 75
@@ -234,6 +246,9 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
     steps:
       - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3.6.0
 
@@ -272,6 +287,14 @@ jobs:
           REQUIRED_TARGETS: aarch64-apple-darwin,x86_64-apple-darwin,x86_64-pc-windows-msvc,x86_64-unknown-linux-gnu
         run: bun packages/desktop/scripts/finalize-latest-yml.ts
 
+      - name: Attest installer and metadata provenance
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
+        with:
+          subject-path: |
+            release-assets/*
+            release-finalized/*
+
       - name: Upload finalized release metadata
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -291,6 +314,9 @@ jobs:
           needs.build_signed_windows.result == 'success' && needs.build_release_linux.result == 'success' &&
           needs.finalize.result == 'success' }}
     runs-on: ubuntu-24.04
+    concurrency:
+      group: quantcode-release-${{ needs.version.outputs.tag }}
+      cancel-in-progress: false
     environment: quantcode-release-publish
     permissions:
       contents: read
@@ -309,6 +335,7 @@ jobs:
           path: release-finalized
 
       - name: Stage draft GitHub Release
+        id: stage
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.QUANTCODE_RELEASE_TOKEN }}
@@ -321,6 +348,7 @@ jobs:
             echo "QUANTCODE_RELEASE_TOKEN is required to publish to $TARGET_REPOSITORY" >&2
             exit 1
           fi
+          echo "already_published=false" >> "$GITHUB_OUTPUT"
 
           notes="$RUNNER_TEMP/quantcode-release-notes.md"
           printf 'Built from [%s@%s](https://github.com/%s/commit/%s).\n\nBuild run: https://github.com/%s/actions/runs/%s\n' \
@@ -330,13 +358,14 @@ jobs:
           if gh release view "$TAG" --repo "$TARGET_REPOSITORY" >/dev/null 2>&1; then
             draft="$(gh release view "$TAG" --repo "$TARGET_REPOSITORY" --json isDraft --jq .isDraft)"
             existing_prerelease="$(gh release view "$TAG" --repo "$TARGET_REPOSITORY" --json isPrerelease --jq .isPrerelease)"
-            if [[ "$draft" != "true" ]]; then
-              echo "Refusing to replace published release $TAG" >&2
+            if [[ "$existing_prerelease" != "$PRERELEASE" ]]; then
+              echo "Existing release prerelease mode does not match the requested version" >&2
               exit 1
             fi
-            if [[ "$existing_prerelease" != "$PRERELEASE" ]]; then
-              echo "Draft prerelease mode does not match the requested version" >&2
-              exit 1
+            if [[ "$draft" != "true" ]]; then
+              echo "already_published=true" >> "$GITHUB_OUTPUT"
+              echo "Release $TAG is already published; verification will determine whether this rerun is idempotent."
+              exit 0
             fi
             gh release edit "$TAG" --repo "$TARGET_REPOSITORY" --title "QuantCode $VERSION" --notes-file "$notes"
           else
@@ -346,12 +375,21 @@ jobs:
             gh release create "$TAG" --repo "$TARGET_REPOSITORY" --title "QuantCode $VERSION" --notes-file "$notes" "${flags[@]}"
           fi
 
+          if [[ "$(gh release view "$TAG" --repo "$TARGET_REPOSITORY" --json isDraft --jq .isDraft)" != "true" ]]; then
+            echo "Release $TAG stopped being a draft before asset replacement" >&2
+            exit 1
+          fi
+
           mapfile -t stale < <(gh release view "$TAG" --repo "$TARGET_REPOSITORY" --json assets --jq '.assets[].name')
           for asset in "${stale[@]}"; do
             gh release delete-asset "$TAG" "$asset" --yes --repo "$TARGET_REPOSITORY"
           done
 
           mapfile -t files < <(find release-assets release-finalized -maxdepth 1 -type f -print | sort)
+          if [[ "$(gh release view "$TAG" --repo "$TARGET_REPOSITORY" --json isDraft --jq .isDraft)" != "true" ]]; then
+            echo "Release $TAG stopped being a draft before asset upload" >&2
+            exit 1
+          fi
           gh release upload "$TAG" "${files[@]}" --repo "$TARGET_REPOSITORY"
 
       - name: Verify staged GitHub Release
@@ -360,6 +398,7 @@ jobs:
           GH_TOKEN: ${{ secrets.QUANTCODE_RELEASE_TOKEN }}
           TAG: ${{ needs.version.outputs.tag }}
           TARGET_REPOSITORY: HKUST-QUANT-SOCIETY/quantcode
+          ALREADY_PUBLISHED: ${{ steps.stage.outputs.already_published }}
         run: |
           expected="$RUNNER_TEMP/quantcode-release-expected.tsv"
           actual="$RUNNER_TEMP/quantcode-release-actual.tsv"
@@ -375,9 +414,15 @@ jobs:
             --jq '.assets[] | [.name, (.size | tostring), (.digest // "")] | @tsv' | sort > "$actual"
 
           diff --unified "$expected" "$actual"
-          [[ "$(gh release view "$TAG" --repo "$TARGET_REPOSITORY" --json isDraft --jq .isDraft)" == "true" ]]
+          draft="$(gh release view "$TAG" --repo "$TARGET_REPOSITORY" --json isDraft --jq .isDraft)"
+          if [[ "$ALREADY_PUBLISHED" == "true" ]]; then
+            [[ "$draft" == "false" ]]
+          else
+            [[ "$draft" == "true" ]]
+          fi
 
       - name: Publish verified draft
+        if: steps.stage.outputs.already_published != 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.QUANTCODE_RELEASE_TOKEN }}

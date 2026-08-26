@@ -16,11 +16,11 @@
     "quantcode": {
       "type": "local",
       "command": ["python", "-m", "quantcode.mcp_server"],
-      "cwd": "../code/HKUST-QUANT-SOCIETY/quantcode",
+      "cwd": "{env:QUANTCODE_ROOT}",
       "environment": {
-        "PYTHONPATH": "../code/HKUST-QUANT-SOCIETY/quantcode"
+        "PYTHONPATH": "{env:QUANTCODE_ROOT}"
       },
-      "enabled": true
+      "enabled": false
     }
   },
   "tools": {

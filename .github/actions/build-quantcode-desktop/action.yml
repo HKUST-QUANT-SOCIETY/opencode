@@ -243,9 +243,21 @@ runs:
       working-directory: packages/desktop
       shell: bash
       run: |
-        executable="$(find dist -path '*/QuantCode.app/Contents/MacOS/QuantCode' -type f -print -quit)"
-        if [[ -z "$executable" ]]; then
-          echo "Packaged QuantCode executable was not found" >&2
+        dmg="$(find dist -maxdepth 1 -name "quantcode-$OPENCODE_VERSION-*.dmg" -type f -print -quit)"
+        zip="$(find dist -maxdepth 1 -name "quantcode-$OPENCODE_VERSION-*.zip" -type f -print -quit)"
+        if [[ -z "$dmg" || -z "$zip" ]]; then
+          echo "Packaged QuantCode DMG or ZIP was not found" >&2
+          exit 1
+        fi
+        unzip -tq "$zip"
+
+        mount_dir="$RUNNER_TEMP/quantcode-dmg"
+        mkdir -p "$mount_dir"
+        hdiutil attach -nobrowse -readonly -mountpoint "$mount_dir" "$dmg" >/dev/null
+        executable="$mount_dir/QuantCode.app/Contents/MacOS/QuantCode"
+        if [[ ! -x "$executable" ]]; then
+          echo "QuantCode executable was not found inside the DMG" >&2
+          hdiutil detach "$mount_dir" -force >/dev/null 2>&1 || true
           exit 1
         fi
 
@@ -264,6 +276,7 @@ runs:
           done
           kill -KILL -- "-$pid" 2>/dev/null || true
           wait "$pid" 2>/dev/null || true
+          hdiutil detach "$mount_dir" -force >/dev/null 2>&1 || true
           cat "$log"
         }
         trap cleanup EXIT
@@ -275,10 +288,15 @@ runs:
       working-directory: packages/desktop
       shell: pwsh
       run: |
-        $executable = Get-ChildItem "dist\*-unpacked\QuantCode.exe" | Select-Object -First 1
-        if (-not $executable) {
-          throw "Packaged QuantCode executable was not found"
+        $installer = Get-ChildItem "dist\quantcode-$env:OPENCODE_VERSION-win-x64.exe" | Select-Object -First 1
+        if (-not $installer) {
+          throw "Packaged QuantCode NSIS installer was not found"
         }
+        $installRoot = Join-Path $env:RUNNER_TEMP "quantcode-installed"
+        $install = Start-Process -FilePath $installer.FullName -ArgumentList @("/S", "/D=$installRoot") -Wait -PassThru
+        if ($install.ExitCode -ne 0) { throw "QuantCode NSIS installer failed with exit code $($install.ExitCode)" }
+        $executable = Get-Item (Join-Path $installRoot "QuantCode.exe") -ErrorAction SilentlyContinue
+        if (-not $executable) { throw "QuantCode.exe was not installed by the NSIS package" }
 
         $stdout = Join-Path $env:RUNNER_TEMP "quantcode-packaged-smoke.stdout.log"
         $stderr = Join-Path $env:RUNNER_TEMP "quantcode-packaged-smoke.stderr.log"
@@ -299,6 +317,10 @@ runs:
         } finally {
           taskkill /PID $process.Id /T /F 2>$null | Out-Null
           Wait-Process -Id $process.Id -Timeout 15 -ErrorAction SilentlyContinue
+          $uninstaller = Get-ChildItem $installRoot -Filter "Uninstall*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($uninstaller) {
+            Start-Process -FilePath $uninstaller.FullName -ArgumentList "/S" -Wait | Out-Null
+          }
           if (Test-Path $stdout) { Get-Content $stdout }
           if (Test-Path $stderr) { Get-Content $stderr }
         }
@@ -308,9 +330,23 @@ runs:
       working-directory: packages/desktop
       shell: bash
       run: |
-        sandbox="dist/linux-unpacked/chrome-sandbox"
+        appimage="$(find dist -maxdepth 1 -name "quantcode-$OPENCODE_VERSION-*.AppImage" -type f -print -quit)"
+        if [[ -z "$appimage" ]]; then
+          echo "Packaged QuantCode AppImage was not found" >&2
+          exit 1
+        fi
+        appimage="$(realpath "$appimage")"
+        extract_root="$RUNNER_TEMP/quantcode-appimage"
+        mkdir -p "$extract_root"
+        (cd "$extract_root" && "$appimage" --appimage-extract >/dev/null)
+        executable="$extract_root/squashfs-root/AppRun"
+        sandbox="$extract_root/squashfs-root/chrome-sandbox"
+        if [[ ! -x "$executable" ]]; then
+          echo "AppRun was not found inside the QuantCode AppImage" >&2
+          exit 1
+        fi
         if [[ ! -f "$sandbox" ]]; then
-          echo "Packaged Chromium sandbox helper was not found" >&2
+          echo "Packaged Chromium sandbox helper was not found inside the AppImage" >&2
           exit 1
         fi
         # The unpacked tree is produced as the runner user. Electron refuses to
@@ -327,7 +363,7 @@ runs:
         port="$(node -e 'const net=require("node:net");const server=net.createServer();server.listen(0,"127.0.0.1",()=>{console.log(server.address().port);server.close()})')"
         set -m
         xvfb-run -a env OPENCODE_TEST_ONBOARDING=1 \
-          dist/linux-unpacked/quantcode --remote-debugging-address=127.0.0.1 \
+          "$executable" --remote-debugging-address=127.0.0.1 \
           --remote-debugging-port="$port" > "$log" 2>&1 &
         pid=$!
         set +m
@@ -344,6 +380,29 @@ runs:
         trap cleanup EXIT
         QUANTCODE_SMOKE_DEBUG_URL="http://127.0.0.1:$port/json/list" QUANTCODE_SMOKE_PID="$pid" \
           bun scripts/verify-packaged-launch.ts
+
+    - name: Verify Linux package contents
+      if: runner.os == 'Linux'
+      working-directory: packages/desktop
+      shell: bash
+      run: |
+        deb="$(find dist -maxdepth 1 -name "quantcode-$OPENCODE_VERSION-*.deb" -type f -print -quit)"
+        rpm_package="$(find dist -maxdepth 1 -name "quantcode-$OPENCODE_VERSION-*.rpm" -type f -print -quit)"
+        [[ -n "$deb" && -n "$rpm_package" ]]
+        dpkg-deb --info "$deb" >/dev/null
+        deb_files="$(dpkg-deb --contents "$deb")"
+        grep -q 'usr/share/applications/org.hkust.quantcode.desktop' <<< "$deb_files"
+        grep -q 'usr/share/metainfo/org.hkust.quantcode.metainfo.xml' <<< "$deb_files"
+        grep -q 'opt/QuantCode/quantcode' <<< "$deb_files"
+        desktop="$(dpkg-deb --fsys-tarfile "$deb" | tar -xOJf - ./usr/share/applications/org.hkust.quantcode.desktop)"
+        grep -q '^Exec=/opt/QuantCode/quantcode %U$' <<< "$desktop"
+        grep -q '^Icon=quantcode$' <<< "$desktop"
+        grep -q '^StartupWMClass=org.hkust.quantcode$' <<< "$desktop"
+        rpm -qip "$rpm_package" >/dev/null
+        rpm_files="$(rpm -qlp "$rpm_package")"
+        grep -q '/usr/share/applications/org.hkust.quantcode.desktop' <<< "$rpm_files"
+        grep -q '/usr/share/metainfo/org.hkust.quantcode.metainfo.xml' <<< "$rpm_files"
+        grep -q '/opt/QuantCode/quantcode' <<< "$rpm_files"
 
     - name: Verify installer set
       working-directory: packages/desktop

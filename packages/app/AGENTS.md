@@ -12,7 +12,7 @@
 - `opencode dev web` proxies `https://app.opencode.ai`, so local UI/CSS changes will not show there.
 - For local QuantCode UI changes, run `bun run dev:quantcode` from the repository root.
 - The launcher starts the backend on port 4096 and the app on port 4444 with `OPENCODE_CHANNEL=quantcode`.
-- Do not start `packages/app` directly; its default development channel uses OpenCode branding.
+- Do not start `packages/app` directly; the branded launcher pins the backend, ports, model snapshot, and channel together.
 - Open `http://localhost:4444` to verify UI changes (it targets the backend at `http://localhost:4096`).
 
 ## SolidJS

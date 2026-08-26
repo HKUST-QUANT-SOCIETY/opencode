@@ -38,6 +38,7 @@ async function signWindows(configuration: { path: string }) {
 const channel = (() => {
   const raw = process.env.OPENCODE_CHANNEL
   if (raw === "dev" || raw === "beta" || raw === "prod" || raw === "quantcode") return raw
+  if (raw === "latest") return "prod"
   return "quantcode"
 })()
 const updateMode = channel === "quantcode" ? resolveQuantCodeUpdateMode() : "signed"

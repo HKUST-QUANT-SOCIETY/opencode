@@ -106,3 +106,19 @@ test("keeps a hidden prod launcher for old Linux pins", async () => {
   expect(desktop).toContain("StartupWMClass=ai.opencode.desktop")
   expect(desktop).toContain("NoDisplay=true")
 })
+
+test("canonicalizes the legacy latest channel to the OpenCode prod package", async () => {
+  const previous = process.env.OPENCODE_CHANNEL
+  process.env.OPENCODE_CHANNEL = "latest"
+
+  const config = await import("./electron-builder.config.ts?channel=legacy-latest").then(
+    (module) => module.default as Configuration,
+  )
+
+  if (previous === undefined) delete process.env.OPENCODE_CHANNEL
+  else process.env.OPENCODE_CHANNEL = previous
+
+  expect(config.appId).toBe("ai.opencode.desktop")
+  expect(config.productName).toBe("OpenCode")
+  expect(config.artifactName).toBe("opencode-desktop-${os}-${arch}.${ext}")
+})

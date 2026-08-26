@@ -224,12 +224,12 @@ function DraftRoute() {
 
 function ResolvedDraftRoute(props: { draft: DraftTab }) {
   const global = useGlobal()
-  const conn = createMemo(() => global.servers.list().find((item) => ServerConnection.key(item) === props.draft.server))
+  const serverKey = createMemo(() => resolveServerKey(props.draft.server, global.servers.list()))
+  const conn = createMemo(() => global.servers.list().find((item) => ServerConnection.key(item) === serverKey()))
   const directory = () => props.draft.directory
-  const serverKey = () => props.draft.server
 
   return (
-    <Show when={`${props.draft.server}\0${props.draft.directory}`} keyed>
+    <Show when={`${serverKey()}\0${props.draft.directory}`} keyed>
       <ServerSDKProvider server={conn}>
         <ServerSyncProvider server={conn}>
           <TargetServerScopedProviders directory={directory}>

@@ -8,52 +8,14 @@ import { For, Match, Show, Switch, createMemo, createSignal, onCleanup, onMount,
 import { createStore } from "solid-js/store"
 import { Icon, type IconProps } from "@opencode-ai/ui/icon"
 import { usePrompt } from "@/context/prompt"
+import { useServer } from "@/context/server"
+import { buildResearchInstruction, buildResumeInstruction, QUANTCODE_GROUPS, type QuantCodeGroup } from "./instructions"
+import { isRunAgentResult, type RunAgentResult, type TraceEvent } from "./result-contract"
 import "./panels.css"
-
-export type TraceEvent = {
-  type: string
-  thread_id?: string
-  seq?: number
-  iteration?: number | null
-  group?: string
-  flow_name?: string
-  node?: string | null
-  data?: Record<string, unknown>
-}
-
-export type RunAgentResult = {
-  status: string
-  thread_id?: string
-  timestamp?: number
-  gate?: {
-    kind?: string
-    gate_id?: string
-    message?: string
-    reasons?: string[]
-    risk_metrics?: Record<string, unknown>
-    decision_schema?: { allowed: string[]; default: string }
-    review_history?: { decision: string; timestamp: number }[]
-  }
-  execution_trace?: TraceEvent[]
-  output_data?: Record<string, unknown>
-  artifacts?: string[]
-  risk_metrics?: Record<string, unknown>
-  human_decision?: string
-  human_review_history?: { decision: string; timestamp: number }[]
-  error?: string
-}
 
 const [_trace, setTrace] = createSignal<RunAgentResult | null>(null)
 const [_group, setGroup] = createSignal("factor")
 const [_threadHistory, setThreadHistory] = createSignal<RunAgentResult[]>([])
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null
-}
-
-function isRunAgentResult(value: unknown): value is RunAgentResult {
-  return isRecord(value) && typeof value.status === "string"
-}
 
 try {
   const raw = localStorage.getItem("quantcode:thread_cache")
@@ -128,14 +90,14 @@ export function updateQuantCodeTrace(result: RunAgentResult) {
 }
 
 export function setQuantCodeGroup(group: string) {
+  if (!QUANTCODE_GROUPS.includes(group as QuantCodeGroup)) return
   setGroup(group)
 }
 
-function resumeGate(threadId: string, decision: "approve" | "reject") {
-  window.dispatchEvent(new CustomEvent("quantcode:humanGate:resume", { detail: { thread_id: threadId, decision } }))
+export function quantCodeGroup() {
+  return _group() as QuantCodeGroup
 }
 
-const GROUPS = ["fundamental", "factor", "model", "risk", "strategy", "options"] as const
 const SKILLS = [
   { id: "auto-factor-evaluation", label: "Auto Factor Evaluation" },
   { id: "cross-section-research", label: "Cross-section Research" },
@@ -148,7 +110,7 @@ type SubmitState = "idle" | "starting" | "submitted" | "error"
 
 function readIdentity() {
   try {
-    return localStorage.getItem("quantcode:ssh_identity") || "Hendrix Chen"
+    return localStorage.getItem("quantcode:ssh_identity") || "Quant Society Member"
   } catch {
     return "Quant Society Member"
   }
@@ -286,7 +248,7 @@ function ActivityPanel(props: { onUseTask: (task: string) => void }): JSX.Elemen
   )
 }
 
-function GatePanel(): JSX.Element {
+function GatePanel(props: { onResume: (threadId: string, decision: "approve" | "reject") => void }): JSX.Element {
   const run = createMemo(() => _trace())
   const gate = createMemo(() => run()?.gate)
   const waiting = createMemo(() => run()?.status === "waiting_for_human" && !!gate())
@@ -329,14 +291,14 @@ function GatePanel(): JSX.Element {
                 <button
                   type="button"
                   class="qc-button qc-button-primary"
-                  onClick={() => resumeGate(run()!.thread_id!, "approve")}
+                  onClick={() => props.onResume(run()!.thread_id!, "approve")}
                 >
                   批准继续
                 </button>
                 <button
                   type="button"
                   class="qc-button qc-button-secondary"
-                  onClick={() => resumeGate(run()!.thread_id!, "reject")}
+                  onClick={() => props.onResume(run()!.thread_id!, "reject")}
                 >
                   拒绝并停止
                 </button>
@@ -388,17 +350,23 @@ function MemoryPanel(): JSX.Element {
   )
 }
 
-function SettingsPanel(props: { skill: string; onSkillChange: (skill: string) => void }): JSX.Element {
+function SettingsPanel(props: {
+  skill: string
+  onSkillChange: (skill: string) => void
+  serverName: string
+  serverReady: boolean
+  serverTransport: string
+}): JSX.Element {
   return (
     <div class="qc-detail-body">
       <div class="qc-setting-row">
         <div>
           <span class="qc-section-label">SSH IDENTITY</span>
           <strong>{readIdentity()}</strong>
-          <p>私钥仅用于建立 Server B 会话，不上传到 GitHub。</p>
+          <p>身份名称保存在本机；服务器认证由 OpenCode 连接配置管理。</p>
         </div>
-        <span class="qc-connection-pill">
-          <i /> 已连接
+        <span class="qc-connection-pill" classList={{ "is-disconnected": !props.serverReady }}>
+          <i /> {props.serverReady ? "已连接" : "未连接"}
         </span>
       </div>
       <label class="qc-field-label" for="qc-settings-group">
@@ -408,9 +376,9 @@ function SettingsPanel(props: { skill: string; onSkillChange: (skill: string) =>
         id="qc-settings-group"
         class="qc-select-wide"
         value={_group()}
-        onChange={(event) => setGroup(event.currentTarget.value)}
+        onChange={(event) => setQuantCodeGroup(event.currentTarget.value)}
       >
-        <For each={GROUPS}>{(group) => <option value={group}>{group}</option>}</For>
+        <For each={QUANTCODE_GROUPS}>{(group) => <option value={group}>{group}</option>}</For>
       </select>
       <label class="qc-field-label" for="qc-settings-skill">
         默认 Skill
@@ -426,8 +394,8 @@ function SettingsPanel(props: { skill: string; onSkillChange: (skill: string) =>
       <div class="qc-detail-section">
         <span class="qc-section-label">EXECUTION TARGET</span>
         <div class="qc-server-line">
-          <span>Server B</span>
-          <code>Ubuntu · SSH key</code>
+          <span>{props.serverName}</span>
+          <code>{props.serverTransport}</code>
         </div>
       </div>
     </div>
@@ -436,6 +404,7 @@ function SettingsPanel(props: { skill: string; onSkillChange: (skill: string) =>
 
 export function QuantCodePanel(props: { onClose?: () => void } = {}): JSX.Element {
   const prompt = usePrompt()
+  const server = useServer()
   const [state, setState] = createStore({
     view: "compose" as DetailView,
     task: "",
@@ -452,6 +421,9 @@ export function QuantCodePanel(props: { onClose?: () => void } = {}): JSX.Elemen
 
   const selectedSkill = createMemo(() => SKILLS.find((skill) => skill.id === state.skill) ?? SKILLS[0])
   const gateWaiting = createMemo(() => _trace()?.status === "waiting_for_human")
+  const serverName = createMemo(() => server.name || "当前服务器")
+  const serverReady = createMemo(() => server.ready())
+  const serverTransport = createMemo(() => (server.isLocal() ? "本地 sidecar" : server.key))
   const recent = createMemo(() => {
     const history = _threadHistory().slice(0, 3)
     if (history.length) {
@@ -493,17 +465,14 @@ export function QuantCodePanel(props: { onClose?: () => void } = {}): JSX.Elemen
   })
 
   const instruction = () => {
-    const task = state.task.trim()
-    return (
-      "You MUST call the quantcode_run_agent MCP tool NOW. Do NOT chat. Do NOT acknowledge. " +
-      `Invoke it with task: ${JSON.stringify(task)}, group: ${JSON.stringify(_group())}. ` +
-      `Use the ${selectedSkill().label} skill when applicable.`
-    )
+    return buildResearchInstruction({
+      task: state.task.trim(),
+      group: _group(),
+      skillLabel: selectedSkill().label,
+    })
   }
 
-  const submitResearch = () => {
-    if (!state.task.trim() || state.submit === "starting") return
-    const content = instruction()
+  const submitInstruction = (content: string, nextView: DetailView = "compose") => {
     setState({ submit: "starting", error: "" })
     prompt.set([{ type: "text", content, start: 0, end: content.length }], content.length)
 
@@ -512,12 +481,22 @@ export function QuantCodePanel(props: { onClose?: () => void } = {}): JSX.Elemen
         '[data-component="session-composer"], [data-component="session-new-composer"]',
       )
       if (!form) {
-        setState({ submit: "error", error: "当前会话输入框尚未就绪，请稍后重试。" })
+        setState({ view: "compose", submit: "error", error: "当前会话输入框尚未就绪，请稍后重试。" })
         return
       }
       form.requestSubmit()
-      setState("submit", "submitted")
+      setState({ view: nextView, submit: "submitted" })
     })
+  }
+
+  const submitResearch = () => {
+    if (!state.task.trim() || state.submit === "starting") return
+    submitInstruction(instruction())
+  }
+
+  const resumeResearchGate = (threadId: string, decision: "approve" | "reject") => {
+    if (state.submit === "starting") return
+    submitInstruction(buildResumeInstruction(threadId, decision), "activity")
   }
 
   const focusComposer = (task?: string) => {
@@ -617,10 +596,10 @@ export function QuantCodePanel(props: { onClose?: () => void } = {}): JSX.Elemen
             <strong>{_group()}</strong>
           </div>
           <div class="qc-environment">
-            <span>Server B</span>
+            <span>{serverName()}</span>
             <i />
-            <span class="qc-connected">
-              <b /> 已连接
+            <span class="qc-connected" classList={{ "is-disconnected": !serverReady() }}>
+              <b /> {serverReady() ? "已连接" : "未连接"}
             </span>
           </div>
         </header>
@@ -657,8 +636,8 @@ export function QuantCodePanel(props: { onClose?: () => void } = {}): JSX.Elemen
               </button>
               <button type="button" class="qc-lens-meta-row" onClick={() => setState("view", "settings")}>
                 <span>SSH:</span>
-                <strong>Server B</strong>
-                <small>已连接</small>
+                <strong>{serverName()}</strong>
+                <small>{serverReady() ? "已连接" : "未连接"}</small>
                 <Icon name="chevron-down" size="small" />
               </button>
             </div>
@@ -667,7 +646,9 @@ export function QuantCodePanel(props: { onClose?: () => void } = {}): JSX.Elemen
           <section class="qc-compose-zone" id="qc-research-prompt" aria-label="研究任务">
             <div class="qc-compose-heading">
               <span>RESEARCH PROMPT</span>
-              <span>{_group().toUpperCase()} / SERVER B</span>
+              <span>
+                {_group().toUpperCase()} / {serverName().toUpperCase()}
+              </span>
             </div>
             <div class="qc-composer" classList={{ "has-error": state.submit === "error" }}>
               <label for="qc-task">今天研究什么？</label>
@@ -781,13 +762,19 @@ export function QuantCodePanel(props: { onClose?: () => void } = {}): JSX.Elemen
                   <ActivityPanel onUseTask={focusComposer} />
                 </Match>
                 <Match when={state.view === "gate"}>
-                  <GatePanel />
+                  <GatePanel onResume={resumeResearchGate} />
                 </Match>
                 <Match when={state.view === "memory"}>
                   <MemoryPanel />
                 </Match>
                 <Match when={state.view === "settings"}>
-                  <SettingsPanel skill={state.skill} onSkillChange={(skill) => setState("skill", skill)} />
+                  <SettingsPanel
+                    skill={state.skill}
+                    onSkillChange={(skill) => setState("skill", skill)}
+                    serverName={serverName()}
+                    serverReady={serverReady()}
+                    serverTransport={serverTransport()}
+                  />
                 </Match>
               </Switch>
             </section>

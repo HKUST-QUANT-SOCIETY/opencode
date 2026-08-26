@@ -210,6 +210,12 @@
   box-shadow: 0 0 0 3px rgba(43, 140, 99, 0.12);
 }
 
+.qc-connected.is-disconnected b,
+.qc-connection-pill.is-disconnected i {
+  background: #8a8880;
+  box-shadow: 0 0 0 3px rgba(138, 136, 128, 0.12);
+}
+
 .qc-canvas {
   position: relative;
   height: calc(100% - 52px);

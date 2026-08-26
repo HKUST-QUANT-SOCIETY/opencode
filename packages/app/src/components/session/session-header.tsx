@@ -31,11 +31,10 @@ import { Icon as IconV2 } from "@opencode-ai/ui/v2/icon"
 import { KeybindV2 } from "@opencode-ai/ui/v2/keybind-v2"
 import { TooltipV2 } from "@opencode-ai/ui/v2/tooltip-v2"
 import { reviewTooltipKeybind } from "../command-tooltip-keybind"
-import { setQuantCodeGroup } from "@/components/quantcode/panels"
+import { quantCodeGroup, setQuantCodeGroup } from "@/components/quantcode/panels"
+import { QUANTCODE_GROUPS, type QuantCodeGroup } from "@/components/quantcode/instructions"
+import { isQuantCode } from "@/brand"
 import { Select } from "@opencode-ai/ui/select"
-
-const QUANTCODE_GROUPS = ["fundamental", "factor", "model", "risk", "strategy", "options"] as const
-type QuantCodeGroup = (typeof QUANTCODE_GROUPS)[number]
 
 const OPEN_APPS = [
   "vscode",
@@ -230,8 +229,14 @@ export function SessionHeader() {
     createStore({ group: "factor" as QuantCodeGroup }),
   )
   createEffect(() => {
+    if (!isQuantCode) return
     const group = quantcodePrefs.group
     if (group) setQuantCodeGroup(group)
+  })
+  createEffect(() => {
+    if (!isQuantCode) return
+    const group = quantCodeGroup()
+    if (group !== quantcodePrefs.group) setQuantcodePrefs("group", group)
   })
   const [menu, setMenu] = createStore({ open: false })
   const [openRequest, setOpenRequest] = createStore({
@@ -257,7 +262,7 @@ export function SessionHeader() {
     reviewVisible: isDesktop(),
     reviewOpened: view().reviewPanel.opened(),
     onReviewToggle: () => view().reviewPanel.toggle(),
-    quantcodeGroup: quantcodePrefs.group,
+    quantcodeGroup: quantCodeGroup(),
     onQuantcodeGroupSelect: (group: QuantCodeGroup) => {
       setQuantcodePrefs("group", group)
       setQuantCodeGroup(group)
@@ -558,29 +563,28 @@ function SessionHeaderV2Actions(props: { state: SessionHeaderV2ActionsState }) {
 
   return (
     <div class="flex items-center gap-2">
-      <Select
-        options={[...QUANTCODE_GROUPS]}
-        current={props.state.quantcodeGroup}
-        value={(o) => o}
-        label={(o) => o}
-        onSelect={(group) => {
-          if (!group) return
-          props.state.onQuantcodeGroupSelect(group)
-        }}
-        variant="secondary"
-        size="small"
-        triggerVariant="settings"
-        triggerStyle={{ "min-width": "100px" }}
-      />
-      <span class="text-[10px] text-muted shrink-0 hidden lg:inline">QC</span>
-      <TooltipV2
-        placement="bottom"
-        value="QuantCode group selector — routes run_agent to your team's Compose flow"
-      >
-        <span class="rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-primary shrink-0 cursor-default select-none">
-          manual
-        </span>
-      </TooltipV2>
+      <Show when={isQuantCode}>
+        <Select
+          options={[...QUANTCODE_GROUPS]}
+          current={props.state.quantcodeGroup}
+          value={(o) => o}
+          label={(o) => o}
+          onSelect={(group) => {
+            if (!group) return
+            props.state.onQuantcodeGroupSelect(group)
+          }}
+          variant="secondary"
+          size="small"
+          triggerVariant="settings"
+          triggerStyle={{ "min-width": "100px" }}
+        />
+        <span class="text-[10px] text-muted shrink-0 hidden lg:inline">QC</span>
+        <TooltipV2 placement="bottom" value="QuantCode group selector — routes run_agent to your team's Compose flow">
+          <span class="rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-primary shrink-0 cursor-default select-none">
+            manual
+          </span>
+        </TooltipV2>
+      </Show>
       <Show when={props.state.statusVisible}>
         <Tooltip placement="bottom" value={props.state.statusLabel}>
           <StatusPopoverV2 />
@@ -612,23 +616,22 @@ function SessionHeaderV2Actions(props: { state: SessionHeaderV2ActionsState }) {
           />
         </TooltipV2>
       </Show>
-      <TooltipV2
-        placement="bottom"
-        value="QuantCode panel"
-      >
-        <IconButtonV2
-          type="button"
-          variant="ghost-muted"
-          size="large"
-          class="!w-9 shrink-0"
-          state={props.state.quantcodePanelOpened ? "pressed" : undefined}
-          onClick={props.state.onQuantcodePanelToggle}
-          aria-label="QuantCode panel"
-          aria-expanded={props.state.quantcodePanelOpened}
-          aria-controls="quantcode-panel"
-          icon={<span class="text-[11px] font-bold">QC</span>}
-        />
-      </TooltipV2>
+      <Show when={isQuantCode}>
+        <TooltipV2 placement="bottom" value="QuantCode panel">
+          <IconButtonV2
+            type="button"
+            variant="ghost-muted"
+            size="large"
+            class="!w-9 shrink-0"
+            state={props.state.quantcodePanelOpened ? "pressed" : undefined}
+            onClick={props.state.onQuantcodePanelToggle}
+            aria-label="QuantCode panel"
+            aria-expanded={props.state.quantcodePanelOpened}
+            aria-controls="quantcode-panel"
+            icon={<span class="text-[11px] font-bold">QC</span>}
+          />
+        </TooltipV2>
+      </Show>
     </div>
   )
 }

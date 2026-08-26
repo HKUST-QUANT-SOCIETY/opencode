@@ -39,6 +39,7 @@ export default defineConfig({
   main: {
     define: {
       "import.meta.env.OPENCODE_CHANNEL": JSON.stringify(channel),
+      "import.meta.env.VITE_OPENCODE_CHANNEL": JSON.stringify(channel),
       "import.meta.env.QUANTCODE_UPDATE_MODE": JSON.stringify(updateMode),
       "import.meta.env.QUANTCODE_UPDATE_FEED": JSON.stringify(updateFeed),
       "import.meta.env.QUANTCODE_UPDATER_ENABLED": JSON.stringify(updaterEnabled),

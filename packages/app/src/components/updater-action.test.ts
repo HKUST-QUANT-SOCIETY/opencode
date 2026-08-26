@@ -22,5 +22,8 @@ describe("updaterAction", () => {
     expect(updaterAction({ status: "installing", version: "2.0.0" })).toEqual({
       label: "settings.updates.action.installing",
     })
+    expect(updaterAction({ status: "disabled" })).toEqual({
+      label: "settings.updates.action.checkNow",
+    })
   })
 })

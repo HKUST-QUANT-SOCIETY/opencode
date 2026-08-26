@@ -15,6 +15,7 @@ import { useLanguage } from "@/context/language"
 import { usePlatform } from "@/context/platform"
 import { ServerConnection } from "@/context/server"
 import { showToast } from "@/utils/toast"
+import { isQuantCode } from "@/brand"
 import { DialogAddWslServer } from "./dialog-add-server"
 import { useWslServers } from "./context"
 import { wslOpencodeAction, wslRuntimeRetryable } from "./settings-model"
@@ -44,7 +45,7 @@ export function AddServerMenu(props: { onAddServer: () => void }) {
   }
   return (
     <Show
-      when={platform.wslServers}
+      when={!isQuantCode && platform.wslServers}
       fallback={
         <ButtonV2 variant="ghost-muted" icon="plus" onClick={props.onAddServer}>
           {language.t("dialog.server.add.button")}
@@ -129,7 +130,7 @@ export function WslServerSettings(props: {
                 <Show when={props.controller.canDefault() && props.controller.defaultKey() === key}>
                   <Tag>{language.t("dialog.server.status.default")}</Tag>
                 </Show>
-                <Show when={opencodeAction()}>
+                <Show when={!isQuantCode ? opencodeAction() : undefined}>
                   {(label) => (
                     <ButtonV2
                       size="small"

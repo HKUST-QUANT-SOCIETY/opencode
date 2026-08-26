@@ -27,6 +27,7 @@ describe("QuantCode brand", () => {
     expect(productCopy("Please report this error to the OpenCode team", "QuantCode")).toBe(
       "Please report this error to the QuantCode team",
     )
+    expect(productCopy("OpenCode Zen works with OpenCode", "QuantCode")).toBe("OpenCode Zen works with QuantCode")
   })
 
   test("uses QuantCode document branding when no channel is supplied", async () => {
@@ -80,11 +81,33 @@ describe("QuantCode brand", () => {
           <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon-v3.png" />
           <script id="oc-theme-preload-script" src="/oc-theme-preload.js"></script>
         </head>
+        <body class="app"></body>
       </html>
     `)
     expect(html).toContain("<title>QuantCode</title>")
     expect(html).toContain('href="/quantcode-icon.png"')
     expect(html).not.toContain("favicon-v3")
     expect(html).not.toContain("apple-touch-icon-v3")
+    expect(html).toContain('data-product="quantcode"')
+  })
+
+  test("keeps the shared desktop HTML OpenCode-branded for an explicit prod channel", async () => {
+    const previous = process.env.OPENCODE_CHANNEL
+    process.env.OPENCODE_CHANNEL = "prod"
+    const plugins = (await import("../vite.js" + "?opencode-prod-brand-test")).default as unknown[]
+    if (previous === undefined) delete process.env.OPENCODE_CHANNEL
+    if (previous !== undefined) process.env.OPENCODE_CHANNEL = previous
+
+    const plugin = plugins.find(
+      (item) => item && typeof item === "object" && "name" in item && item.name === "opencode-desktop:theme-preload",
+    ) as { transformIndexHtml?: (html: string) => string } | undefined
+    if (!plugin?.transformIndexHtml) throw new Error("OpenCode prod title transform is missing")
+
+    const source = await Bun.file("../desktop/src/renderer/index.html").text()
+    const html = plugin.transformIndexHtml(source)
+    expect(html).toContain("<title>OpenCode</title>")
+    expect(html).toContain("./favicon-96x96-v3.png")
+    expect(html).not.toContain("quantcode-icon.png")
+    expect(html).not.toContain('data-product="quantcode"')
   })
 })

@@ -11,6 +11,7 @@ import type { DragEvent } from "@thisbeyond/solid-dnd"
 import type { SnapshotFileDiff, VcsFileDiff } from "@opencode-ai/sdk/v2"
 import { ConstrainDragYAxis, getDraggableId } from "@/utils/solid-dnd"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
+import { isQuantCode } from "@/brand"
 
 import FileTree from "@/components/file-tree"
 import { SessionContextUsage } from "@/components/session-context-usage"
@@ -65,7 +66,7 @@ export function SessionSidePanel(props: {
 
   const reviewOpen = createMemo(() => isDesktop() && view().reviewPanel.opened())
   // QuantCode panel drive-sidebar visibility so the panel renders even when no files/review are open
-  const quantcodeOpen = createMemo(() => isDesktop() && view().quantcodePanel.opened())
+  const quantcodeOpen = createMemo(() => isQuantCode && isDesktop() && view().quantcodePanel.opened())
   const fileOpen = createMemo(
     () =>
       isDesktop() &&
@@ -162,6 +163,11 @@ export function SessionSidePanel(props: {
   createEffect(() => {
     const opened = view().quantcodePanel.opened()
     const current = activeTab()
+    if (!isQuantCode) {
+      if (opened) view().quantcodePanel.close()
+      if (current === "quantcode") openTab("empty")
+      return
+    }
     if (opened) {
       if (current !== "quantcode") openTab("quantcode")
     } else {
@@ -320,11 +326,13 @@ export function SessionSidePanel(props: {
                               </div>
                             </Tabs.Trigger>
                           </Show>
-                          <Tabs.Trigger value="quantcode">
-                            <div class="flex items-center gap-1.5">
-                              <div>QuantCode</div>
-                            </div>
-                          </Tabs.Trigger>
+                          <Show when={isQuantCode}>
+                            <Tabs.Trigger value="quantcode">
+                              <div class="flex items-center gap-1.5">
+                                <div>QuantCode</div>
+                              </div>
+                            </Tabs.Trigger>
+                          </Show>
                           <SortableProvider ids={openedTabs()}>
                             <For each={openedTabs()}>
                               {(tab) => <SortableTab tab={tab} onTabClose={tabs().close} />}
@@ -359,7 +367,9 @@ export function SessionSidePanel(props: {
                         </Tabs.Content>
                       </Show>
 
-                      <Tabs.Content value="quantcode" class="hidden" />
+                      <Show when={isQuantCode}>
+                        <Tabs.Content value="quantcode" class="hidden" />
+                      </Show>
 
                       <Tabs.Content value="empty" class="flex flex-col h-full overflow-hidden contain-strict">
                         <Show when={activeTab() === "empty"}>

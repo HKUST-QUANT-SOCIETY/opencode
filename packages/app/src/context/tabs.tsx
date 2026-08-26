@@ -3,6 +3,7 @@ import { createSimpleContext } from "@opencode-ai/ui/context"
 import { createStore, produce } from "solid-js/store"
 import { Persist, persisted, removePersisted, draftPersistedKeys } from "@/utils/persist"
 import { ServerConnection, useServer } from "./server"
+import { reconcileTabServers } from "./tab-server-reconcile"
 import { createEffect, getOwner, onCleanup, startTransition } from "solid-js"
 import { useLocation, useNavigate, useParams } from "@solidjs/router"
 import { usePlatform } from "./platform"
@@ -95,15 +96,14 @@ export const { use: useTabs, provider: TabsProvider } = createSimpleContext({
 
     createEffect(() => {
       if (!ready() || !recentReady()) return
-      const servers = new Set(server.list.map(ServerConnection.key))
-      const next = store.filter((tab) => servers.has(tab.server))
-      if (next.length !== store.length) {
-        for (const tab of store) {
-          if (!servers.has(tab.server)) memory.remove(tabKey(tab))
-        }
-        setStore(() => next)
+      const reconciled = reconcileTabServers(store, server.list, tabKey)
+      const changed = reconciled.tabs.length !== store.length || reconciled.rekeyed.size > 0
+      if (changed) {
+        for (const key of [...reconciled.removed, ...reconciled.rekeyed.keys()]) memory.remove(key)
+        setStore(() => reconciled.tabs)
       }
-      if (recent.key && !next.some((tab) => tabKey(tab) === recent.key)) setRecentKey(undefined)
+      if (recent.key && reconciled.rekeyed.has(recent.key)) setRecentKey(reconciled.rekeyed.get(recent.key))
+      else if (recent.key && !reconciled.tabs.some((tab) => tabKey(tab) === recent.key)) setRecentKey(undefined)
     })
 
     const navigateTab = (tab: Tab) => {

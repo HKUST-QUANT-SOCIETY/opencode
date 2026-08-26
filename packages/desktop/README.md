@@ -23,4 +23,4 @@ bun run build
 bun run package
 ```
 
-For a single platform, use `bun run package:mac`, `bun run package:win`, or `bun run package:linux`. CI launches the unpacked result with a loopback-only, random DevTools port and verifies that the QuantCode renderer mounts before accepting the artifact. Normal launches never expose that debug endpoint.
+For a single platform, use `bun run package:mac`, `bun run package:win`, or `bun run package:linux`. CI exercises the real delivery container (mounted DMG, temporary NSIS install, or extracted AppImage), validates DEB/RPM contents, and uses a loopback-only random DevTools port to verify that the QuantCode renderer and sidecar start before accepting the artifact. Normal launches never expose that debug endpoint.

@@ -31,7 +31,9 @@ import { showToast } from "@/utils/toast"
 import { base64Encode, checksum } from "@opencode-ai/core/util/encode"
 import { useLocation, useNavigate, useSearchParams } from "@solidjs/router"
 import { NewSessionView, SessionHeader } from "@/components/session"
+import { isQuantCode } from "@/brand"
 import { updateQuantCodeTrace } from "@/components/quantcode/panels"
+import { parseRunAgentOutput } from "@/components/quantcode/result-contract"
 import { useComments } from "@/context/comments"
 import { useServerSync } from "@/context/server-sync"
 import { useLanguage } from "@/context/language"
@@ -1285,6 +1287,7 @@ export default function Page() {
   // Reads from sync().data.part to detect completed run_agent tool calls without modifying execution flow.
   const qcSeen = new Set<string>()
   createEffect(() => {
+    if (!isQuantCode) return
     try {
       const parts = sync().data.part
       for (const partList of Object.values(parts)) {
@@ -1305,22 +1308,8 @@ export default function Page() {
           if (qcSeen.has(id)) continue
           qcSeen.add(id)
 
-          try {
-            let parsed = JSON.parse(outputStr)
-            // Handle MCP double-wrapped JSON: {"content":[{"type":"text","text":"<json_string>"}]}
-            if (!parsed.execution_trace && !parsed.status && parsed.content?.[0]?.text) {
-              try {
-                parsed = JSON.parse(parsed.content[0].text)
-              } catch {
-                /* not double-wrapped */
-              }
-            }
-            if (parsed && (parsed.execution_trace || parsed.status)) {
-              updateQuantCodeTrace(parsed)
-            }
-          } catch {
-            /* JSON parse error — skip */
-          }
+          const parsed = parseRunAgentOutput(outputStr)
+          if (parsed) updateQuantCodeTrace(parsed)
         }
       }
     } catch {

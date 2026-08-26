@@ -5,7 +5,7 @@ import { createSimpleContext } from "@opencode-ai/ui/context"
 import { Persist, persisted } from "@/utils/persist"
 import { dict as en } from "@/i18n/en"
 import { dict as uiEn } from "@opencode-ai/ui/i18n/en"
-import { isQuantCode } from "@/brand"
+import { isQuantCode, productCopy, PRODUCT_NAME } from "@/brand"
 
 export type Locale =
   | "en"
@@ -223,7 +223,7 @@ export const { use: useLanguage, provider: LanguageProvider } = createSimpleCont
 
     const t = (key: keyof Dictionary, params?: Record<string, string | number | boolean>) => {
       const value = translate(key, params)
-      return isQuantCode ? value.replaceAll("OpenCode", "QuantCode") : value
+      return isQuantCode ? productCopy(value, PRODUCT_NAME) : value
     }
 
     const label = (value: Locale) => t(LABEL_KEY[value])

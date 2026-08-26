@@ -22,6 +22,8 @@ import { UserMessage } from "@opencode-ai/sdk/v2"
 import { useSessionLayout } from "@/pages/session/session-layout"
 import { useTabs } from "@/context/tabs"
 import { requireServerKey } from "@/utils/session-route"
+import { isQuantCode } from "@/brand"
+import { buildComposePrefix, type QuantCodeGroup } from "@/components/quantcode/instructions"
 import { createSessionOwnership } from "./session-ownership"
 
 export type SessionCommandContext = {
@@ -37,8 +39,6 @@ const withCategory = (category: string) => {
     category,
   })
 }
-
-const QUANTCODE_GROUPS = ["fundamental", "factor", "model", "risk", "strategy", "options"] as const
 
 export const useSessionCommands = (actions: SessionCommandContext) => {
   const command = useCommand()
@@ -58,7 +58,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
   const { params, sessionKey, tabs, view } = useSessionLayout()
   const [quantcodePrefs] = persisted(
     Persist.global("quantcode.day5"),
-    createStore({ group: "factor" as (typeof QUANTCODE_GROUPS)[number] }),
+    createStore({ group: "factor" as QuantCodeGroup }),
   )
   const sessionOwnership = createSessionOwnership(sessionKey)
   const openDialog = async <T,>(load: () => Promise<T>, show: (value: T) => void) => {
@@ -566,32 +566,28 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
   ]
 
   // QuantCode: /compose 命令 — 强制 LLM 调 run_agent MCP tool
-  const composeCmds = () => [
-    sessionCommand({
-      id: "quantcode.compose",
-      title: "QuantCode Compose",
-      description: "触发 QuantCode Compose 流（强制调 run_agent MCP tool）",
-      slash: "compose",
-      onSelect: () => {
-        // Force the LLM to call the run_agent MCP tool with the correct group.
-        // No conversational preamble — the entire payload is an imperative instruction
-        // that the LLM must treat as the highest-priority action.
-        const group = quantcodePrefs.group ?? "factor"
-        // ★ FIXED: MCP tool names use single underscore (quantcode_run_agent), not double (mcp__quantcode__run_agent).
-        //   McpCatalog.toolName() → sanitize(clientName) + "_" + sanitize(name) → "quantcode" + "_" + "run_agent"
-        const prefix =
-          `You MUST call the quantcode_run_agent MCP tool NOW. Do NOT chat. Do NOT acknowledge. Invoke the tool immediately.\n\n` +
-          `Parameters:\n- task: (the task the user describes below)\n- group: "${group}"\n\n` +
-          `The user's task follows. Translate it into the task parameter — do not reply in text.\n\n` +
-          `=== USER TASK ===\n`
-        prompt.set(
-          [{ type: "text" as const, content: prefix, start: 0, end: prefix.length }],
-          prefix.length,
-        )
-        actions.focusInput()
-      },
-    }),
-  ]
+  const composeCmds = () =>
+    isQuantCode
+      ? [
+          sessionCommand({
+            id: "quantcode.compose",
+            title: "QuantCode Compose",
+            description: "触发 QuantCode Compose 流（强制调 run_agent MCP tool）",
+            slash: "compose",
+            onSelect: () => {
+              // Force the LLM to call the run_agent MCP tool with the correct group.
+              // No conversational preamble — the entire payload is an imperative instruction
+              // that the LLM must treat as the highest-priority action.
+              const group = quantcodePrefs.group ?? "factor"
+              // ★ FIXED: MCP tool names use single underscore (quantcode_run_agent), not double (mcp__quantcode__run_agent).
+              //   McpCatalog.toolName() → sanitize(clientName) + "_" + sanitize(name) → "quantcode" + "_" + "run_agent"
+              const prefix = buildComposePrefix(group)
+              prompt.set([{ type: "text" as const, content: prefix, start: 0, end: prefix.length }], prefix.length)
+              actions.focusInput()
+            },
+          }),
+        ]
+      : []
 
   const permissionsCmds = () => [
     permissionsCommand({

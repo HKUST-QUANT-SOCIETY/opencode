@@ -18,6 +18,10 @@ merged into the source repository's default `dev` branch before
 `workflow_dispatch` is available. A pull request runs unsigned packaging and
 the packaged-launch smoke test; a tag named `quantcode-vX.Y.Z`, or a manual
 dispatch from `dev` with `publish=true`, runs the approved release path.
+Manual dispatch also accepts `sign=true,publish=false`: this runs the protected
+Apple, Azure, and Linux release jobs, finalizes and attests their artifacts, but
+does not mutate the target GitHub Release. Use that mode to validate signing
+and notarization before the first production publication.
 
 The target repository is currently private. Browser or GitHub CLI login is not
 inherited by an installed Electron app, so an anonymous `electron-updater`
@@ -134,6 +138,17 @@ macOS feeds, and writes:
 - `release-manifest.json` (source commit, workflow run, release tag, sizes, and SHA-256)
 - `SHA256SUMS` (packages and generated metadata)
 
+The public source repository then uses GitHub OIDC and `actions/attest` to
+create Sigstore-backed build provenance for every installer and finalized
+metadata file. This trust record is separate from the cross-repository release
+token, so replacing a Linux package and its checksum in the private release
+repository does not produce matching source-repository provenance. Verify a
+download with:
+
+```bash
+gh attestation verify <installer> -R HKUST-QUANT-SOCIETY/opencode
+```
+
 For a published run, a separate release job creates or reuses a draft release,
 uploads only the finalized assets, compares remote names, sizes, and GitHub
 SHA-256 digests, and publishes only after verification. It refuses to replace
@@ -141,8 +156,12 @@ an already published release.
 
 ## Packaged launch smoke test
 
-Each active target launches its unpacked QuantCode application after
-electron-builder. The test sets `OPENCODE_TEST_ONBOARDING=1` and passes
+Each active target exercises the installable package after electron-builder:
+macOS mounts the DMG and launches its app after checking the ZIP archive;
+Windows silently installs the NSIS package into a temporary location, launches
+it, and runs its uninstaller; Linux extracts and launches the AppImage while
+also validating the DEB/RPM launcher, executable, icon, and AppStream paths.
+The test sets `OPENCODE_TEST_ONBOARDING=1` and passes
 Chromium's remote debugging address and a newly allocated loopback port as
 command-line arguments. `packages/desktop/scripts/verify-packaged-launch.ts`
 then polls `/json/list` with bounded timeouts and verifies:
@@ -166,7 +185,13 @@ There is no `QUANTCODE_PACKAGED_SMOKE` product flag.
 Run an artifact-only build from the default branch with:
 
 ```bash
-gh workflow run quantcode-desktop.yml -R HKUST-QUANT-SOCIETY/opencode -f version=0.1.0 -f publish=false
+gh workflow run quantcode-desktop.yml -R HKUST-QUANT-SOCIETY/opencode -f version=0.1.0 -f sign=false -f publish=false
+```
+
+Run a protected signed, non-publishing validation with:
+
+```bash
+gh workflow run quantcode-desktop.yml -R HKUST-QUANT-SOCIETY/opencode -f version=0.1.0 -f sign=true -f publish=false
 ```
 
 For pull requests, inspect `Finalize release bundle` and its
