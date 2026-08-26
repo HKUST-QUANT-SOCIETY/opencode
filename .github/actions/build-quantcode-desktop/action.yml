@@ -125,7 +125,7 @@ runs:
       with:
         install-flags: ${{ inputs.install_flags }}
 
-    - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+    - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
       with:
         node-version: "24"
 
@@ -197,7 +197,7 @@ runs:
 
     - name: Login for Windows Trusted Signing
       if: inputs.signing_mode == 'signed' && runner.os == 'Windows'
-      uses: azure/login@a457da9ea143d694b1b9c7c869ebb04ebe844ef5 # v2.3.0
+      uses: azure/login@0949e32778441b2c442592b7a0e6313466dc8f29 # v3.0.2
       with:
         client-id: ${{ inputs.azure_client_id }}
         tenant-id: ${{ inputs.azure_tenant_id }}
@@ -536,7 +536,7 @@ runs:
         }
 
     - name: Upload installers
-      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
         name: quantcode-${{ inputs.rust_target }}
         if-no-files-found: error
@@ -552,7 +552,7 @@ runs:
     # Keep each target's updater metadata isolated. Both macOS jobs emit
     # latest-mac.yml and finalization must merge them rather than overwrite one.
     - name: Upload updater metadata
-      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
         name: latest-yml-${{ inputs.rust_target }}
         if-no-files-found: error
