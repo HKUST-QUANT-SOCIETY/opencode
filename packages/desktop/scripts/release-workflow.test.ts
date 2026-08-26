@@ -33,6 +33,8 @@ describe("QuantCode desktop release workflow contract", () => {
     expect(action).toContain("--appimage-extract")
     expect(action).toContain("dpkg-deb --contents")
     expect(action).toContain("rpm -qlp")
+    expect(action).toContain('dpkg-deb --fsys-tarfile "$deb" | tar -xOf -')
+    expect(action).not.toContain('dpkg-deb --fsys-tarfile "$deb" | tar -xOJf -')
   })
 
   test("rebuilds installers for changes anywhere in the workspace dependency graph", () => {

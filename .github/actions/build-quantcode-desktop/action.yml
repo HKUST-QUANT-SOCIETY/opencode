@@ -394,7 +394,7 @@ runs:
         grep -q 'usr/share/applications/org.hkust.quantcode.desktop' <<< "$deb_files"
         grep -q 'usr/share/metainfo/org.hkust.quantcode.metainfo.xml' <<< "$deb_files"
         grep -q 'opt/QuantCode/quantcode' <<< "$deb_files"
-        desktop="$(dpkg-deb --fsys-tarfile "$deb" | tar -xOJf - ./usr/share/applications/org.hkust.quantcode.desktop)"
+        desktop="$(dpkg-deb --fsys-tarfile "$deb" | tar -xOf - ./usr/share/applications/org.hkust.quantcode.desktop)"
         grep -q '^Exec=/opt/QuantCode/quantcode %U$' <<< "$desktop"
         grep -q '^Icon=quantcode$' <<< "$desktop"
         grep -q '^StartupWMClass=org.hkust.quantcode$' <<< "$desktop"
