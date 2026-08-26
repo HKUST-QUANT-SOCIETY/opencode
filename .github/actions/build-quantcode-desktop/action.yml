@@ -197,7 +197,7 @@ runs:
 
     - name: Login for Windows Trusted Signing
       if: inputs.signing_mode == 'signed' && runner.os == 'Windows'
-      uses: azure/login@0949e32778441b2c442592b7a0e6313466dc8f29 # v3.0.2
+      uses: azure/login@7ddb5af1ef8758cf1353cf3b42f940aee27ba21c # v3.0.2
       with:
         client-id: ${{ inputs.azure_client_id }}
         tenant-id: ${{ inputs.azure_tenant_id }}
