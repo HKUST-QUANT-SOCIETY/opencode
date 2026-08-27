@@ -7,7 +7,7 @@
 - Final static implementation: `/private/tmp/quantcode-motion-static-final.png`
 - Final in-motion implementation: `/private/tmp/quantcode-motion-dynamic-final.png`
 - Compact desktop implementation: `/private/tmp/quantcode-motion-1024.png`
-- Route: `http://localhost:4444/server/aHR0cDovL2xvY2FsaG9zdDo0MDk2/session/ses_ff319803affe2IXoNO3OYFwi7W`
+- Route: `http://localhost:4444/` (QuantCode channel root home)
 - Comparison viewport: 1487 × 1058 CSS pixels
 - Source and implementation captures: 1487 × 1058 physical pixels, 1× density
 - State: QuantCode workspace open, task field empty, Auto Factor Evaluation selected, Server B connected. Static evidence has the pointer outside the stage; dynamic evidence captures a fast left-to-right pointer pass while the lens is still carrying momentum.
@@ -63,6 +63,7 @@
 - Task template populates the composer.
 - Skill selection updates the active workflow.
 - Start Research becomes enabled when a task exists.
+- The root route mounts the QuantCode workspace directly; a first-time project selection creates and submits the draft only after the project is available.
 - Command/Ctrl+Enter follows the same submission path.
 - Submission delegates to the current OpenCode session through `quantcode_run_agent`; the live model call was intentionally not executed during visual QA to avoid an external-cost side effect.
 - Memory and HumanGate rail panels open and show their expected states.

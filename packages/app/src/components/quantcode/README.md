@@ -11,7 +11,7 @@
 文件：`packages/app/src/pages/session/use-session-commands.tsx`
 
 - 在 `composeCmds()` 里注册了 `slash: "compose"`，选中后会预填 prompt：`"请用 run_agent 完成以下任务："` 并聚焦输入框。
-- OpenCode 内置 MCP client 在 `opencode.jsonc` 里已配 6 个 `quantcode-<group>` server，**`/compose` 选完用户填任务，agent 就会自动调 `run_agent` MCP tool**——触发链本身不需要额外代码。
+- `.opencode/opencode.jsonc` 配置了一个名为 `quantcode` 的本地 MCP server，默认保持禁用；启用后，**`/compose` 选完用户填任务，agent 就会自动调用 `quantcode_run_agent` MCP tool**。组别是传给 tool 的参数，不是六个独立的 MCP server。
 
 ### 2. QuantCode 六面板组件
 
@@ -39,10 +39,11 @@ import { QuantCodePanel, updateQuantCodeTrace, setQuantCodeGroup } from "@/compo
 
 ### 3. Python bridge（demo 降级路径）
 
-文件：`../QUANTcode/runner/demo_bridge.py`
+文件：独立的 [QuantCode Python 仓库](https://github.com/HKUST-QUANT-SOCIETY/quantcode) 中的 `runner/demo_bridge.py`
 
 ```bash
-# demo 当天 fallback：直接跑 Python，不依赖 TS 前端
+# 在 QuantCode Python 仓库根目录运行；demo fallback 不依赖 TS 前端
+cd /path/to/quantcode
 python -m runner.demo_bridge --group risk --skill risk-gate \
   --task "run risk_stub high_risk" --auto-approve
 # JSONL 模式（供 OpenCode spawn 消费）：
@@ -51,15 +52,33 @@ python -m runner.demo_bridge --group factor --task "测 PB-ROE 因子" --jsonl
 
 ---
 
+## QuantCode 首页入口
+
+当 `OPENCODE_CHANNEL=quantcode` 时，QuantCode 工作区直接占用 `/` 首页；上游
+OpenCode channel 仍保留原来的项目/会话首页。首页提交流程如下：
+
+1. 在 Compose 区填写任务，或先套用任务模板。
+2. 选择 Skill 和研究组，然后点击 **Start Research**（也支持
+   Command/Ctrl+Enter）。
+3. 如果 Server B 已记录最近项目，任务会绑定到该项目；首次使用且没有项目时，
+   会打开原生目录选择器。
+4. 选择项目后，应用创建 draft 并自动提交；模型和 agent 列表就绪前不会重复提交。
+
+如果研究服务器未连接或健康检查失败，首页会保留任务内容并显示连接错误，不会创建一个
+无人消费的 draft。
+
 ## 当前集成状态
 
 本仓库的 `.opencode/opencode.jsonc` 将 QuantCode MCP 保持为默认禁用，避免公开 OpenCode fork 在没有 Python 后端时启动失败。开发者需要设置 `QUANTCODE_ROOT` 指向 QuantCode Python 仓库，并在个人/项目配置中启用 `mcp.quantcode`。桌面安装包不会嵌入成员私钥、GitHub PAT 或 Python 仓库路径；正式 Server B 连接由 OpenCode 的服务器配置和成员本机凭据管理。
 
 ### 已完成（接入 OpenCode 桌面会话）
 
-**Step 1 — session-side-panel.tsx 的 QuantCode 工作区**
+**Step 1 — 根首页和 session-side-panel.tsx 的 QuantCode 工作区**
 
-`packages/app/src/pages/session/session-side-panel.tsx` 已接入全屏 QuantCode 工作区，并仅在 QuantCode channel 暴露入口。
+`packages/app/src/pages/home.tsx` 的 `QuantCodeHome` 和
+`packages/app/src/pages/session/session-side-panel.tsx` 都接入同一套全屏 QuantCode
+工作区，并仅在 QuantCode channel 暴露入口。根首页负责创建 draft/session；已有会话则
+继续从 session route 打开工作区。
 
 **Step 2 — 校验并消费 run_agent tool result**
 
@@ -90,7 +109,7 @@ const prompt = buildResumeInstruction(threadID, "approve")
 
 ---
 
-## Python 侧接口契约（完整版见 `docs/IDE_Python_Interface_Contract.md`）
+## Python 侧接口契约（完整版见 [IDE_Python_Interface_Contract.md](https://github.com/HKUST-QUANT-SOCIETY/quantcode/blob/main/docs/IDE_Python_Interface_Contract.md)）
 
 运行格式：
 
@@ -114,5 +133,6 @@ execution_trace 的 10 种事件类型：
 - [x] `/compose` slash 命令已注册
 - [x] 六面板组件已实现（Compose/任务树/HumanGate/Schema/Memory/Resume）
 - [x] Python bridge 可独立运行（demo 兜底）
+- [x] QuantCode channel 的 `/` 首页直接挂载工作区，并支持首次选择项目后自动提交
 - [x] session-side-panel.tsx 接入 QuantCode 工作区并按 channel 隔离
 - [x] run_agent tool result 监听、结构校验与 HumanGate resume

@@ -82,6 +82,8 @@ brew install --cask opencode-desktop
 scoop bucket add extras; scoop install extras/opencode-desktop
 ```
 
+For the QuantCode desktop builds in this fork, see the [member installation guide](packages/desktop/QUANTCODE_INSTALL.md) and [release workflow notes](packages/desktop/QUANTCODE_RELEASE.md).
+
 #### Installation Directory
 
 The install script respects the following priority order for the installation path:

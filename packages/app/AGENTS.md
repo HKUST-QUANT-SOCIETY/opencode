@@ -33,3 +33,8 @@ Core workflow:
 2. `agent-browser snapshot -i` - Get interactive elements with refs (@e1, @e2)
 3. `agent-browser click @e1` / `fill @e2 "text"` - Interact using refs
 4. Re-snapshot after page changes
+
+## QuantCode References
+
+- [QuantCode UI integration notes](src/components/quantcode/README.md) describe the root workspace, MCP contract, and HumanGate resume flow.
+- [QuantCode Lens UI QA](../../design-qa.md) records the visual and interaction checks for the branded surface.

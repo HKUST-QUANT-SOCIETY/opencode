@@ -122,7 +122,13 @@ This starts both the backend on http://localhost:4096 and the web app on http://
 
 The desktop app is an Electron application that wraps the web UI.
 
-To run the desktop app in development:
+For QuantCode desktop development, run the branded launcher from the repository root:
+
+```bash
+bun run dev:desktop
+```
+
+This pins `OPENCODE_CHANNEL=quantcode`, copies the QuantCode icon, and starts the Electron shell. To invoke the package-level command directly:
 
 ```bash
 bun run --cwd packages/desktop dev
