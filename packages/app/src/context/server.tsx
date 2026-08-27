@@ -103,7 +103,8 @@ export function createServerProjects<T extends ServerProjectState>(input: {
       setStore("projects", input.scope(), next)
     },
     last() {
-      return input.store.lastProject[input.scope()]
+      const last = input.store.lastProject[input.scope()]
+      return current().some((project) => project.worktree === last) ? last : undefined
     },
     touch(directory: string) {
       setStore("lastProject", input.scope(), directory)

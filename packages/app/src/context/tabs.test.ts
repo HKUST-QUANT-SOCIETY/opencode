@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { createRoot, getOwner, onCleanup } from "solid-js"
 import { createTabMemory } from "./tab-memory"
 import type { Tab } from "./tabs"
+import { draftHref } from "./draft-route"
 import { reconcileTabServers } from "./tab-server-reconcile"
 import { ServerConnection } from "./server"
 
@@ -23,6 +24,20 @@ describe("tab memory", () => {
       expect(memory.ensure("tab", "prompt", () => ({ value: "new" }))).not.toBe(first)
       dispose()
     })
+  })
+})
+
+describe("draft navigation", () => {
+  test("carries a one-shot submit intent with an encoded research prompt", () => {
+    expect(draftHref("draft/1", "PB & ROE", { submit: true })).toBe(
+      "/new-session?draftId=draft%2F1&prompt=PB%20%26%20ROE&submit=true",
+    )
+  })
+
+  test("keeps ordinary drafts manual", () => {
+    expect(draftHref("draft-1", "review this")).toBe(
+      "/new-session?draftId=draft-1&prompt=review%20this",
+    )
   })
 })
 

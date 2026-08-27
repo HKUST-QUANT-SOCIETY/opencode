@@ -5,6 +5,7 @@ import { useSettings } from "@/context/settings"
 import { lazy } from "solid-js"
 import { DialogSelectDirectory } from "./dialog-select-directory"
 import { directoryPickerKind } from "./directory-picker-policy"
+import { openNativeDirectoryPicker } from "./directory-picker-native"
 
 const DialogSelectDirectoryV2 = lazy(() =>
   import("./dialog-select-directory-v2").then((module) => ({ default: module.DialogSelectDirectoryV2 })),
@@ -24,7 +25,10 @@ export function useDirectoryPicker() {
 
   return (input: DirectoryPickerInput) => {
     if (directoryPickerKind(platform.platform, input.server) === "native" && platform.platform === "desktop") {
-      void platform.openDirectoryPickerDialog({ title: input.title, multiple: input.multiple }).then(input.onSelect)
+      void openNativeDirectoryPicker(
+        () => platform.openDirectoryPickerDialog({ title: input.title, multiple: input.multiple }),
+        input.onSelect,
+      )
       return
     }
 

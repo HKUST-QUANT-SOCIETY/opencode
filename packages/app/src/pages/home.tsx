@@ -1445,7 +1445,7 @@ export function QuantCodeHome() {
     const directory = projects.last() ?? projects.list()[0]?.worktree
     if (directory) {
       projects.touch(directory)
-      tabs.newDraft({ server: key, directory }, instruction)
+      tabs.newDraft({ server: key, directory }, instruction, { submit: true })
       return true
     }
 
@@ -1465,7 +1465,7 @@ export function QuantCodeHome() {
           }
           projects.open(directory)
           projects.touch(directory)
-          tabs.newDraft({ server: key, directory }, instruction)
+          tabs.newDraft({ server: key, directory }, instruction, { submit: true })
           resolve(true)
         },
       })

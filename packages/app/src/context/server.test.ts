@@ -167,6 +167,21 @@ describe("createServerProjects", () => {
       dispose()
     })
   })
+
+  test("does not return a closed project as the last active directory", () => {
+    createRoot((dispose) => {
+      const [store, setStore] = createStore({
+        projects: { local: [{ worktree: "/open", expanded: true }] },
+        lastProject: { local: "/closed" },
+      })
+      const projects = createServerProjects({ scope: () => ServerScope.local, store, setStore })
+
+      expect(projects.last()).toBeUndefined()
+      projects.touch("/open")
+      expect(projects.last()).toBe("/open")
+      dispose()
+    })
+  })
 })
 
 describe("migrateCanonicalLocalServerState", () => {

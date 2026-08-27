@@ -11,6 +11,7 @@ import { usePrompt } from "@/context/prompt"
 import { useServer } from "@/context/server"
 import { buildResearchInstruction, buildResumeInstruction, QUANTCODE_GROUPS, type QuantCodeGroup } from "./instructions"
 import { isRunAgentResult, type RunAgentResult, type TraceEvent } from "./result-contract"
+import { submitQuantCodeInstruction, type QuantCodeSubmissionHandler } from "./submission"
 import "./panels.css"
 
 const [_trace, setTrace] = createSignal<RunAgentResult | null>(null)
@@ -408,7 +409,7 @@ export type QuantCodePanelProps = {
    * Root-home entry point. Session panels keep the default prompt bridge;
    * the standalone home delegates submission to the draft/session router.
    */
-  onSubmitInstruction?: (content: string) => void | boolean | Promise<boolean | void>
+  onSubmitInstruction?: QuantCodeSubmissionHandler
 }
 
 export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
@@ -485,9 +486,13 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
     setState({ submit: "starting", error: "" })
 
     if (props.onSubmitInstruction) {
-      Promise.resolve(props.onSubmitInstruction(content)).then((accepted) => {
-        if (accepted === false) {
+      void submitQuantCodeInstruction(props.onSubmitInstruction, content).then((result) => {
+        if (result === "unavailable") {
           setState({ submit: "error", error: "请先连接研究服务器并选择一个项目。" })
+          return
+        }
+        if (result === "failed") {
+          setState({ submit: "error", error: "研究启动失败，请重试。" })
           return
         }
         setState({ view: nextView, submit: "submitted" })
@@ -602,15 +607,17 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
           >
             <Icon name="settings-gear" size="normal" />
           </button>
-          <button
-            type="button"
-            class="qc-rail-button"
-            aria-label="关闭 QuantCode 工作区"
-            title="返回 QuantCode"
-            onClick={props.onClose}
-          >
-            <Icon name="close" size="normal" />
-          </button>
+          <Show when={props.onClose}>
+            <button
+              type="button"
+              class="qc-rail-button"
+              aria-label="关闭 QuantCode 工作区"
+              title="关闭 QuantCode 工作区"
+              onClick={() => props.onClose?.()}
+            >
+              <Icon name="close" size="normal" />
+            </button>
+          </Show>
         </div>
       </aside>
 
