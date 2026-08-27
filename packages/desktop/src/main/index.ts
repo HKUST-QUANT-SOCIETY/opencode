@@ -13,7 +13,8 @@ import contextMenu from "electron-context-menu"
 
 import type { ServerReadyData } from "../preload/types"
 import { checkAppExists, resolveAppPath } from "./apps"
-import { CHANNEL } from "./constants"
+import { CHANNEL, PROTOCOL } from "./constants"
+import { forwardArgvDeepLinks } from "./deep-links"
 import { registerIpcHandlers, sendDeepLinks, sendMenuCommand } from "./ipc"
 import { forwardInitializationFailure } from "./initialization"
 import { exportDebugLogs, initCrashReporter, initLogging, startNetLog, write as writeLog } from "./logging"
@@ -43,11 +44,13 @@ const APP_NAMES: Record<string, string> = {
   dev: "OpenCode Dev",
   beta: "OpenCode Beta",
   prod: "OpenCode",
+  quantcode: "QuantCode",
 }
 const APP_IDS: Record<string, string> = {
   dev: "ai.opencode.desktop.dev",
   beta: "ai.opencode.desktop.beta",
   prod: "ai.opencode.desktop",
+  quantcode: "org.hkust.quantcode",
 }
 const TEST_ONBOARDING = process.env.OPENCODE_TEST_ONBOARDING === "1"
 const jsCallStackFeature = "DocumentPolicyIncludeJSCallStacksInCrashReports"
@@ -71,6 +74,11 @@ function emitDeepLinks(urls: string[]) {
   if (urls.length === 0) return
   pendingDeepLinks.push(...urls)
   if (mainWindow) sendDeepLinks(mainWindow, urls)
+}
+
+function emitArgvDeepLinks(source: string, argv: readonly string[]) {
+  const urls = forwardArgvDeepLinks(argv, PROTOCOL, emitDeepLinks)
+  if (urls.length > 0) logger.log(`deep link received via ${source}`, { urls })
 }
 
 async function killSidecar() {
@@ -110,7 +118,7 @@ const main = Effect.gen(function* () {
 
   process.env.OPENCODE_DISABLE_EMBEDDED_WEB_UI = "true"
 
-  const appId = app.isPackaged ? APP_IDS[CHANNEL] : "ai.opencode.desktop.dev"
+  const appId = APP_IDS[CHANNEL]
   const onboardingTestRoot = ((): string | undefined => {
     if (!TEST_ONBOARDING) return
 
@@ -126,7 +134,7 @@ const main = Effect.gen(function* () {
     process.env.XDG_STATE_HOME = join(root, "state")
     return root
   })()
-  app.setName(app.isPackaged ? APP_NAMES[CHANNEL] : "OpenCode Dev")
+  app.setName(APP_NAMES[CHANNEL])
   app.setAppUserModelId(appId)
   app.setPath(
     "userData",
@@ -145,6 +153,7 @@ const main = Effect.gen(function* () {
       })
     },
     {
+      channel: CHANNEL,
       logger: {
         log: (message, meta) => logger.log(message, meta),
         error: (message, meta) => logger.error(message, meta),
@@ -186,14 +195,12 @@ const main = Effect.gen(function* () {
     return
   }
 
+  if (process.platform === "win32") emitArgvDeepLinks("initial argv", process.argv)
+
   preferAppEnv(app.getPath("userData"))
 
   app.on("second-instance", (_event: Event, argv: string[]) => {
-    const urls = argv.filter((arg: string) => arg.startsWith("opencode://"))
-    if (urls.length) {
-      logger.log("deep link received via second-instance", { urls })
-      emitDeepLinks(urls)
-    }
+    emitArgvDeepLinks("second-instance", argv)
     if (mainWindow) {
       mainWindow.show()
       mainWindow.focus()
@@ -237,7 +244,7 @@ const main = Effect.gen(function* () {
   yield* Effect.promise(() => app.whenReady())
 
   if (!TEST_ONBOARDING) migrate()
-  app.setAsDefaultProtocolClient("opencode")
+  app.setAsDefaultProtocolClient(PROTOCOL)
   registerRendererProtocol()
   setDockIcon()
   const updater = setupAutoUpdater(stopSidecars)

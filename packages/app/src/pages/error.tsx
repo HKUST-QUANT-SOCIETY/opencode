@@ -7,6 +7,15 @@ import { createStore } from "solid-js/store"
 import { usePlatform } from "@/context/platform"
 import { useLanguage } from "@/context/language"
 import { Icon } from "@opencode-ai/ui/icon"
+import {
+  PRODUCT_FEEDBACK_ICON,
+  PRODUCT_FEEDBACK_LABEL,
+  PRODUCT_FEEDBACK_URL,
+  PRODUCT_ICON,
+  PRODUCT_NAME,
+  isQuantCode,
+  productCopy,
+} from "@/brand"
 import { errorDescriptionKey } from "./error-description"
 
 export type InitError = {
@@ -276,10 +285,18 @@ export const ErrorPage: Component<ErrorPageProps> = (props) => {
   }
 
   return (
-    <div class="relative flex-1 h-screen w-screen min-h-0 flex flex-col items-center justify-center bg-background-base font-sans">
+    <div
+      data-page="error"
+      class="relative flex-1 h-screen w-screen min-h-0 flex flex-col items-center justify-center bg-background-base font-sans"
+    >
       <div class="w-2/3 max-w-3xl flex flex-col items-center justify-center gap-8">
-        <Logo class="w-58.5 opacity-12 shrink-0" />
-        <div class="flex flex-col items-center gap-2 text-center">
+        <Show when={isQuantCode} fallback={<Logo class="w-58.5 opacity-12 shrink-0" />}>
+          <div class="flex items-center gap-3 text-text-strong">
+            <img src={PRODUCT_ICON} alt={PRODUCT_NAME} class="h-14 w-14 rounded-[14px]" />
+            <span class="text-3xl font-semibold tracking-tight">{PRODUCT_NAME}</span>
+          </div>
+        </Show>
+        <div class="flex flex-col items-center gap-2 text-center" role="alert">
           <h1 class="text-lg font-medium text-text-strong">{language.t("error.page.title")}</h1>
           <p class="text-sm text-text-weak">{language.t(errorDescriptionKey(props.error))}</p>
         </div>
@@ -318,7 +335,7 @@ export const ErrorPage: Component<ErrorPageProps> = (props) => {
               )
             }}
           </Show>
-          <Show when={platform.updater}>
+          <Show when={platform.updater && platform.updater.state().status !== "disabled"}>
             <Show
               when={updateVersion()}
               fallback={
@@ -347,14 +364,14 @@ export const ErrorPage: Component<ErrorPageProps> = (props) => {
         </Show>
         <div class="flex flex-col items-center gap-2">
           <div class="flex items-center justify-center gap-1">
-            {language.t("error.page.report.prefix")}
+            {productCopy(language.t("error.page.report.prefix"), PRODUCT_NAME)}
             <button
               type="button"
               class="flex items-center text-text-interactive-base gap-1"
-              onClick={() => platform.openLink("https://opencode.ai/desktop-feedback")}
+              onClick={() => platform.openLink(PRODUCT_FEEDBACK_URL)}
             >
-              <div>{language.t("error.page.report.discord")}</div>
-              <Icon name="discord" class="text-text-interactive-base" />
+              <div>{PRODUCT_FEEDBACK_LABEL ?? language.t("error.page.report.discord")}</div>
+              <Icon name={PRODUCT_FEEDBACK_ICON} class="text-text-interactive-base" />
             </button>
           </div>
           <Show when={platform.version}>

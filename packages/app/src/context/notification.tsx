@@ -13,7 +13,7 @@ import { EventSessionError } from "@opencode-ai/sdk/v2"
 import { Persist, persisted } from "@/utils/persist"
 import { playSoundById } from "@/utils/sound"
 import { useGlobal } from "./global"
-import { ServerConnection, useServer } from "./server"
+import { resolveServerKey, ServerConnection, useServer } from "./server"
 import { type DraftTab, useTabs } from "./tabs"
 import { requireServerKey } from "@/utils/session-route"
 import type { ServerScope } from "@/utils/server-scope"
@@ -125,10 +125,10 @@ export const { use: useNotification, provider: NotificationProvider } = createSi
     const states = new Map<ServerScope, { dispose: () => void; state: NotificationState }>()
 
     const activeServer = createMemo(() => {
-      if (params.serverKey) return requireServerKey(params.serverKey)
+      if (params.serverKey) return resolveServerKey(requireServerKey(params.serverKey), global.servers.list())
       if (search.draftId) {
         const draft = tabs.store.find((tab): tab is DraftTab => tab.type === "draft" && tab.draftID === search.draftId)
-        if (draft) return draft.server
+        if (draft) return resolveServerKey(draft.server, global.servers.list())
       }
       return server.key
     })
@@ -136,7 +136,8 @@ export const { use: useNotification, provider: NotificationProvider } = createSi
     const activeSession = createMemo(() => params.id)
 
     const ensure = (key: ServerConnection.Key) => {
-      const conn = global.servers.list().find((item) => ServerConnection.key(item) === key)
+      const resolved = resolveServerKey(key, global.servers.list())
+      const conn = global.servers.list().find((item) => ServerConnection.key(item) === resolved)
       if (!conn) throw new Error(`Notification server not found: ${key}`)
       const ctx = global.ensureServerCtx(conn)
       const existing = states.get(ctx.sdk.scope)

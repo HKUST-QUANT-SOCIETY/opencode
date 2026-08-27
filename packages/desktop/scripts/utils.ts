@@ -1,11 +1,12 @@
 import { $ } from "bun"
 
-export type Channel = "dev" | "beta" | "prod"
+export type Channel = "dev" | "beta" | "prod" | "quantcode"
 
 export function resolveChannel(): Channel {
   const raw = Bun.env.OPENCODE_CHANNEL
-  if (raw === "dev" || raw === "beta" || raw === "prod") return raw
-  return "dev"
+  if (raw === "dev" || raw === "beta" || raw === "prod" || raw === "quantcode") return raw
+  if (raw === "latest") return "prod"
+  return "quantcode"
 }
 
 export const SIDECAR_BINARIES: Array<{ rustTarget: string; ocBinary: string; assetExt: string }> = [

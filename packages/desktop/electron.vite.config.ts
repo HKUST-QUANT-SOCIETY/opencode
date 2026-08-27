@@ -2,15 +2,19 @@ import { sentryVitePlugin } from "@sentry/vite-plugin"
 import { defineConfig } from "electron-vite"
 import appPlugin from "@opencode-ai/app/vite"
 import * as fs from "node:fs/promises"
+import { isQuantCodeUpdaterEnabled, resolveQuantCodeUpdateFeed, resolveQuantCodeUpdateMode } from "./update-mode"
 
 const OPENCODE_SERVER_DIST = "../opencode/dist/node"
 
 const channel = (() => {
   const raw = process.env.OPENCODE_CHANNEL
-  if (raw === "dev" || raw === "beta" || raw === "prod") return raw
+  if (raw === "dev" || raw === "beta" || raw === "prod" || raw === "quantcode") return raw
   if (process.env.OPENCODE_CHANNEL === "latest") return "prod"
-  return "dev"
+  return "quantcode"
 })()
+const updateMode = channel === "quantcode" ? resolveQuantCodeUpdateMode() : "signed"
+const updateFeed = channel === "quantcode" ? resolveQuantCodeUpdateFeed() : "public"
+const updaterEnabled = channel !== "quantcode" || isQuantCodeUpdaterEnabled(updateMode, updateFeed)
 
 const nodePtyPkg = `@lydell/node-pty-${process.platform}-${process.arch}`
 
@@ -35,6 +39,10 @@ export default defineConfig({
   main: {
     define: {
       "import.meta.env.OPENCODE_CHANNEL": JSON.stringify(channel),
+      "import.meta.env.VITE_OPENCODE_CHANNEL": JSON.stringify(channel),
+      "import.meta.env.QUANTCODE_UPDATE_MODE": JSON.stringify(updateMode),
+      "import.meta.env.QUANTCODE_UPDATE_FEED": JSON.stringify(updateFeed),
+      "import.meta.env.QUANTCODE_UPDATER_ENABLED": JSON.stringify(updaterEnabled),
     },
     build: {
       rollupOptions: {

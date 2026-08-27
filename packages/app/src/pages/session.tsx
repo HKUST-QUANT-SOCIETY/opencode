@@ -31,6 +31,9 @@ import { showToast } from "@/utils/toast"
 import { base64Encode, checksum } from "@opencode-ai/core/util/encode"
 import { useLocation, useNavigate, useSearchParams } from "@solidjs/router"
 import { NewSessionView, SessionHeader } from "@/components/session"
+import { isQuantCode } from "@/brand"
+import { updateQuantCodeTrace } from "@/components/quantcode/panels"
+import { parseRunAgentOutput } from "@/components/quantcode/result-contract"
 import { useComments } from "@/context/comments"
 import { useServerSync } from "@/context/server-sync"
 import { useLanguage } from "@/context/language"
@@ -1279,6 +1282,40 @@ export default function Page() {
       description: formatServerError(err, language.t),
     })
   }
+
+  // QuantCode: run_agent tool result listener — feeds execution_trace into the QuantCode panel.
+  // Reads from sync().data.part to detect completed run_agent tool calls without modifying execution flow.
+  const qcSeen = new Set<string>()
+  createEffect(() => {
+    if (!isQuantCode) return
+    try {
+      const parts = sync().data.part
+      for (const partList of Object.values(parts)) {
+        if (!partList) continue
+        for (const part of partList) {
+          if (!part) continue
+          if (part.type !== "tool") continue
+
+          const state = part.state
+          const toolName = part.tool
+          if (!/run_agent/i.test(toolName)) continue
+
+          if (state.status !== "completed") continue
+          const outputStr = state.output
+          if (!outputStr) continue
+
+          const id = part.id
+          if (qcSeen.has(id)) continue
+          qcSeen.add(id)
+
+          const parsed = parseRunAgentOutput(outputStr)
+          if (parsed) updateQuantCodeTrace(parsed)
+        }
+      }
+    } catch {
+      // Effect will retry on next reactivity tick
+    }
+  })
 
   const merge = (next: NonNullable<ReturnType<typeof info>>, target = sync()) => target.session.remember(next)
 

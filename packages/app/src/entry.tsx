@@ -8,6 +8,7 @@ import { dict as en } from "@/i18n/en"
 import { dict as zh } from "@/i18n/zh"
 import { handleNotificationClick } from "@/utils/notification-click"
 import { authFromToken } from "@/utils/server"
+import { PRODUCT_ICON, isQuantCode } from "@/brand"
 import pkg from "../package.json"
 import { ServerConnection } from "./context/server"
 
@@ -69,7 +70,7 @@ const notify: Platform["notify"] = async (title, description, href) => {
 
   const notification = new Notification(title, {
     body: description ?? "",
-    icon: "https://opencode.ai/favicon-96x96-v3.png",
+    icon: PRODUCT_ICON,
   })
 
   notification.onclick = () => {
@@ -101,8 +102,10 @@ if (!(root instanceof HTMLElement) && import.meta.env.DEV) {
 
 const getCurrentUrl = () => {
   if (location.hostname.includes("opencode.ai")) return "http://localhost:4096"
-  if (import.meta.env.DEV)
-    return `http://${import.meta.env.VITE_OPENCODE_SERVER_HOST ?? "localhost"}:${import.meta.env.VITE_OPENCODE_SERVER_PORT ?? "4096"}`
+  if (import.meta.env.DEV) {
+    const host = location.hostname || import.meta.env.VITE_OPENCODE_SERVER_HOST || "localhost"
+    return `http://${host}:${import.meta.env.VITE_OPENCODE_SERVER_PORT ?? "4096"}`
+  }
   return location.origin
 }
 
@@ -147,7 +150,8 @@ if (import.meta.env.VITE_SENTRY_DSN) {
     integrations: (integrations) => {
       return integrations.filter(
         (i) =>
-          i.name !== "Breadcrumbs" && !(import.meta.env.OPENCODE_CHANNEL === "prod" && i.name === "GlobalHandlers"),
+          i.name !== "Breadcrumbs" &&
+          !(import.meta.env.VITE_OPENCODE_CHANNEL === "prod" && i.name === "GlobalHandlers"),
       )
     },
   })
@@ -172,7 +176,7 @@ if (root instanceof HTMLElement) {
             defaultServer={ServerConnection.Key.make(getDefaultUrl())}
             canonicalLocalServer={ServerConnection.key(server)}
             servers={[server]}
-            disableHealthCheck
+            disableHealthCheck={!isQuantCode}
           />
         </AppBaseProviders>
       </PlatformProvider>

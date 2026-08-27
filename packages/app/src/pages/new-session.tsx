@@ -36,7 +36,7 @@ export default function NewSessionPage() {
   const comments = useComments()
   const language = useLanguage()
   const route = useSessionKey()
-  const [searchParams, setSearchParams] = useSearchParams<{ draftId?: string; prompt?: string }>()
+  const [searchParams, setSearchParams] = useSearchParams<{ draftId?: string; prompt?: string; submit?: string }>()
 
   useComposerCommands()
   useSettingsCommand()
@@ -54,7 +54,25 @@ export default function NewSessionPage() {
     onDone: () => inputRef?.focus(),
   })
 
-  const [store, setStore] = createStore<{ worktree?: string }>({})
+  const [store, setStore] = createStore({
+    worktree: undefined as string | undefined,
+    autoSubmit: false,
+    autoSubmitStarted: false,
+  })
+
+  const submitWhenReady = () => {
+    const controls = inputController()
+    if (!store.autoSubmit || store.autoSubmitStarted || !inputRef) return
+    if (controls.model.loading || controls.agents.loading) return
+    if (!controls.model.selection.current() || !controls.agents.current) return
+
+    const form = inputRef.closest<HTMLFormElement>("form[data-component=\"session-new-composer\"]")
+    if (!form) return
+
+    setStore("autoSubmitStarted", true)
+    setSearchParams({ ...searchParams, prompt: undefined, submit: undefined })
+    requestAnimationFrame(() => form.requestSubmit())
+  }
 
   const newSessionWorktree = createMemo(() => {
     if (store.worktree) return store.worktree
@@ -76,8 +94,15 @@ export default function NewSessionPage() {
       const text = searchParams.prompt
       if (!text) return
       prompt.set([{ type: "text", content: text, start: 0, end: text.length }], text.length)
+      setStore("autoSubmit", searchParams.submit === "true")
       setSearchParams({ ...searchParams, prompt: undefined })
     })
+  })
+
+  createEffect(() => {
+    inputController()
+    store.autoSubmit
+    untrack(submitWhenReady)
   })
 
   createEffect(() => {
@@ -111,6 +136,7 @@ export default function NewSessionPage() {
                       variant="new-session"
                       ref={(el) => {
                         inputRef = el
+                        submitWhenReady()
                       }}
                       newSessionWorktree={newSessionWorktree()}
                       onNewSessionWorktreeReset={() => setStore("worktree", undefined)}

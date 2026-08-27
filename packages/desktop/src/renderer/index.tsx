@@ -26,8 +26,8 @@ import { initializationData, initializationReady } from "./initialization"
 import { resetZoom, setPinchZoomEnabled, webviewZoom, zoomIn, zoomOut } from "./webview-zoom"
 import { availableStartupServer, readyWslConnections } from "./wsl/connections"
 import "./styles.css"
-import { Splash } from "@opencode-ai/ui/logo"
 import { useTheme } from "@opencode-ai/ui/theme/context"
+import { Splash } from "@opencode-ai/ui/logo"
 
 const root = document.getElementById("root")
 if (import.meta.env.DEV && !(root instanceof HTMLElement)) {
@@ -49,7 +49,7 @@ if (import.meta.env.VITE_SENTRY_DSN) {
         (i) =>
           i.name !== "Breadcrumbs" &&
           !(
-            import.meta.env.OPENCODE_CHANNEL === "prod" &&
+            import.meta.env.VITE_OPENCODE_CHANNEL === "prod" &&
             (i.name === "GlobalHandlers" || i.name === "BrowserApiErrors")
           ),
       )
@@ -216,7 +216,10 @@ const createPlatform = (): Platform => {
 
       const notification = new Notification(title, {
         body: description ?? "",
-        icon: "https://opencode.ai/favicon-96x96-v3.png",
+        icon:
+          import.meta.env.VITE_OPENCODE_CHANNEL === "quantcode"
+            ? "./quantcode-icon.png"
+            : "https://opencode.ai/favicon-96x96-v3.png",
       })
       notification.onclick = () => {
         void window.api.showWindow()
@@ -334,7 +337,12 @@ render(() => {
     const wslServers = useWslServers()
     const splash = (
       <div class="h-dvh w-screen flex flex-col items-center justify-center bg-background-base">
-        <Splash class="w-16 h-20 opacity-50 animate-pulse" />
+        <Show
+          when={import.meta.env.VITE_OPENCODE_CHANNEL === "quantcode"}
+          fallback={<Splash class="w-16 h-20 opacity-50 animate-pulse" />}
+        >
+          <img class="qc-desktop-splash-icon" src="./quantcode-icon.png" alt="QuantCode" />
+        </Show>
       </div>
     )
 

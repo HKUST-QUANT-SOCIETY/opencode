@@ -67,6 +67,8 @@ import { useMarked } from "@opencode-ai/ui/context/marked"
 import { preloadMarkdown } from "@opencode-ai/session-ui/markdown-cache"
 import { archiveHomeSession } from "./home-session-archive"
 import { showToast } from "@/utils/toast"
+import { PRODUCT_FEEDBACK_URL, PRODUCT_ICON, PRODUCT_NAME, isQuantCode } from "@/brand"
+import { QuantCodePanel } from "@/components/quantcode/panels"
 
 const HOME_SESSION_LIMIT = 64
 const HOME_SESSION_HEADER_STICKY_TOP = 12
@@ -536,7 +538,7 @@ export function NewHome() {
           clearNotifications={clearNotifications}
           unseenCount={unseenCount}
           openSettings={openSettings}
-          openHelp={() => platform.openLink("https://opencode.ai/desktop-feedback")}
+          openHelp={() => platform.openLink(PRODUCT_FEEDBACK_URL)}
           language={language}
         />
 
@@ -630,7 +632,7 @@ export function NewHome() {
         <HomeUtilityNav
           class="flex lg:hidden"
           openSettings={openSettings}
-          openHelp={() => platform.openLink("https://opencode.ai/desktop-feedback")}
+          openHelp={() => platform.openLink(PRODUCT_FEEDBACK_URL)}
           language={language}
         />
       </div>
@@ -1421,6 +1423,62 @@ function groupSessions(records: HomeSessionRecord[], language: ReturnType<typeof
   ].filter((group) => group.sessions.length > 0)
 }
 
+/**
+ * QuantCode owns the root route. The OpenCode project/session home is still
+ * available to the upstream channels, but a QuantCode install should open the
+ * research workspace before a project or session exists.
+ */
+export function QuantCodeHome() {
+  const global = useGlobal()
+  const server = useServer()
+  const tabs = useTabs()
+  const pickDirectory = useDirectoryPicker()
+
+  const startResearch = (instruction: string) => {
+    const conn = server.current
+    if (!conn) return false
+
+    const key = ServerConnection.key(conn)
+    if (global.servers.health[key]?.healthy === false) return false
+
+    const projects = global.ensureServerCtx(conn).projects
+    const directory = projects.last() ?? projects.list()[0]?.worktree
+    if (directory) {
+      projects.touch(directory)
+      tabs.newDraft({ server: key, directory }, instruction, { submit: true })
+      return true
+    }
+
+    // A first-run member has no project to bind the draft to yet. Use the same
+    // native/V2 directory picker as the rest of the app, then create the draft
+    // with the exact instruction that was entered in the QuantCode workspace.
+    return new Promise<boolean>((resolve) => {
+      pickDirectory({
+        server: conn,
+        title: "选择研究项目",
+        multiple: false,
+        onSelect: (result) => {
+          const directory = Array.isArray(result) ? result[0] : result
+          if (!directory) {
+            resolve(false)
+            return
+          }
+          projects.open(directory)
+          projects.touch(directory)
+          tabs.newDraft({ server: key, directory }, instruction, { submit: true })
+          resolve(true)
+        },
+      })
+    })
+  }
+
+  return (
+    <div class="size-full min-h-0 min-w-0 overflow-hidden">
+      <QuantCodePanel onSubmitInstruction={startResearch} />
+    </div>
+  )
+}
+
 export function LegacyHome() {
   const sync = useServerSync()
   const platform = usePlatform()
@@ -1478,7 +1536,12 @@ export function LegacyHome() {
 
   return (
     <div class="mx-auto mt-55 w-full md:w-auto px-4">
-      <Logo class="md:w-xl opacity-12" />
+      <Show when={isQuantCode} fallback={<Logo class="md:w-xl opacity-12" />}>
+        <div class="flex items-center justify-center gap-3 text-text-strong">
+          <img src={PRODUCT_ICON} alt={PRODUCT_NAME} class="h-12 w-12 rounded-[12px]" />
+          <span class="text-3xl font-semibold tracking-tight">{PRODUCT_NAME}</span>
+        </div>
+      </Show>
       <Button
         size="large"
         variant="ghost"

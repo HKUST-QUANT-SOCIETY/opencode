@@ -2,12 +2,13 @@
   "name": "@opencode-ai/desktop",
   "private": true,
   "version": "1.17.11",
+  "description": "QuantCode multi-agent quantitative research desktop workspace",
   "type": "module",
   "license": "MIT",
-  "homepage": "https://opencode.ai",
+  "homepage": "https://github.com/HKUST-QUANT-SOCIETY/quantcode",
   "author": {
-    "name": "OpenCode",
-    "email": "hello@opencode.ai"
+    "name": "HKUST Quant Society",
+    "email": "quant@ust.hk"
   },
   "scripts": {
     "typecheck": "tsgo -b",
@@ -15,10 +16,15 @@
     "dev": "electron-vite dev",
     "prebuild": "bun ./scripts/prebuild.ts",
     "build": "electron-vite build",
+    "postbuild": "bun ./scripts/assert-updater-bundle.ts",
     "preview": "electron-vite preview",
+    "prepackage": "bun run build",
     "package": "electron-builder --config electron-builder.config.ts",
+    "prepackage:mac": "bun run build",
     "package:mac": "electron-builder --mac --config electron-builder.config.ts",
+    "prepackage:win": "bun run build",
     "package:win": "electron-builder --win --config electron-builder.config.ts",
+    "prepackage:linux": "bun run build",
     "package:linux": "electron-builder --linux --config electron-builder.config.ts",
     "native:build": "bun install --cwd native"
   },

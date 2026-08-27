@@ -41,12 +41,13 @@ import { ModelsProvider } from "@/context/models"
 import { NotificationProvider, useNotification } from "@/context/notification"
 import { PermissionProvider } from "@/context/permission"
 import { PromptProvider } from "@/context/prompt"
-import { ServerConnection, ServerProvider, serverName, useServer } from "@/context/server"
+import { resolveServerKey, ServerConnection, ServerProvider, serverName, useServer } from "@/context/server"
 import { SettingsProvider, useSettings } from "@/context/settings"
 import { TerminalProvider } from "@/context/terminal"
 import { TabsProvider, useTabs, type DraftTab } from "@/context/tabs"
 import { SDKProvider, useSDK } from "@/context/sdk"
 import { WslServersProvider } from "@/wsl/context"
+import { PRODUCT_ICON, PRODUCT_NAME, isQuantCode } from "@/brand"
 import DirectoryLayout, { DirectoryDataProvider } from "@/pages/directory-layout"
 import LegacyLayout from "@/pages/layout"
 import NewLayout from "@/pages/layout-new"
@@ -62,7 +63,7 @@ import {
 import { isSessionNotFoundError } from "./utils/server-errors"
 
 import Session from "@/pages/session"
-import { NewHome, LegacyHome } from "@/pages/home"
+import { NewHome, LegacyHome, QuantCodeHome } from "@/pages/home"
 
 const NewSession = lazy(() => import("@/pages/new-session"))
 
@@ -105,33 +106,33 @@ const SessionRoute = () => {
 const TargetSessionRoute = () => {
   const params = useParams<{ serverKey: string; id: string }>()
   const global = useGlobal()
+  const requestedServer = createMemo(() => requireServerKey(params.serverKey))
+  const serverKey = createMemo(() => resolveServerKey(requestedServer(), global.servers.list()))
   const conn = createMemo(() => {
-    const key = requireServerKey(params.serverKey)
-    return global.servers.list().find((item) => ServerConnection.key(item) === key)
+    return global.servers.list().find((item) => ServerConnection.key(item) === serverKey())
   })
 
   return (
-    <Show when={requireServerKey(params.serverKey)} keyed>
+    <Show when={serverKey()} keyed>
       <ServerSDKProvider server={conn}>
         <ServerSyncProvider server={conn}>
-          <ResolvedTargetSessionRoute />
+          <ResolvedTargetSessionRoute serverKey={serverKey} />
         </ServerSyncProvider>
       </ServerSDKProvider>
     </Show>
   )
 }
 
-function ResolvedTargetSessionRoute() {
+function ResolvedTargetSessionRoute(props: { serverKey: () => ServerConnection.Key }) {
   const params = useParams<{ serverKey: string; id: string }>()
   const settings = useSettings()
   const tabs = useTabs()
   const sync = useServerSync()
-  const serverKey = createMemo(() => requireServerKey(params.serverKey))
   const cached = createMemo(() => sync().session.lineage.peek(params.id))
   const [resolved] = createResource(
     () => {
       if (cached()) return
-      return { id: params.id, server: serverKey(), sync: sync() }
+      return { id: params.id, server: props.serverKey(), sync: sync() }
     },
     ({ id, server, sync }) =>
       sync.session.lineage.resolve(id).catch((error) => {
@@ -147,7 +148,7 @@ function ResolvedTargetSessionRoute() {
     const session = current()
     if (!session) return
     tabs.addSessionTab({
-      server: serverKey(),
+      server: props.serverKey(),
       sessionId: session.root.id,
     })
   })
@@ -161,7 +162,7 @@ function ResolvedTargetSessionRoute() {
             fallback={<Navigate href={legacySessionHref(directory()!, params.id)} />}
           >
             <SDKProvider directory={targetDirectory}>
-              <DirectoryDataProvider directory={targetDirectory} server={serverKey}>
+              <DirectoryDataProvider directory={targetDirectory} server={props.serverKey}>
                 <TargetSessionPage />
               </DirectoryDataProvider>
             </SDKProvider>
@@ -223,12 +224,12 @@ function DraftRoute() {
 
 function ResolvedDraftRoute(props: { draft: DraftTab }) {
   const global = useGlobal()
-  const conn = createMemo(() => global.servers.list().find((item) => ServerConnection.key(item) === props.draft.server))
+  const serverKey = createMemo(() => resolveServerKey(props.draft.server, global.servers.list()))
+  const conn = createMemo(() => global.servers.list().find((item) => ServerConnection.key(item) === serverKey()))
   const directory = () => props.draft.directory
-  const serverKey = () => props.draft.server
 
   return (
-    <Show when={`${props.draft.server}\0${props.draft.directory}`} keyed>
+    <Show when={`${serverKey()}\0${props.draft.directory}`} keyed>
       <ServerSDKProvider server={conn}>
         <ServerSyncProvider server={conn}>
           <TargetServerScopedProviders directory={directory}>
@@ -453,7 +454,10 @@ function ConnectionGate(props: ParentProps<{ disableHealthCheck?: boolean }>) {
       when={!checking()}
       fallback={
         <div class="h-dvh w-screen flex flex-col items-center justify-center bg-background-base">
-          <Splash class="w-16 h-20 opacity-50 animate-pulse" />
+          <ProductSplash
+            class="w-16 h-20 opacity-50 animate-pulse"
+            iconClass="w-16 h-16 shrink-0 rounded-[16px] opacity-70 animate-pulse"
+          />
         </div>
       }
     >
@@ -478,6 +482,14 @@ function ConnectionGate(props: ParentProps<{ disableHealthCheck?: boolean }>) {
   )
 }
 
+function ProductSplash(props: { class: string; iconClass: string }) {
+  return (
+    <Show when={isQuantCode} fallback={<Splash class={props.class} />}>
+      <img src={PRODUCT_ICON} alt={PRODUCT_NAME} class={props.iconClass} />
+    </Show>
+  )
+}
+
 function ConnectionError(props: { onRetry?: () => void; onServerSelected?: (key: ServerConnection.Key) => void }) {
   const language = useLanguage()
   const server = useServer()
@@ -492,7 +504,7 @@ function ConnectionError(props: { onRetry?: () => void; onServerSelected?: (key:
   return (
     <div class="h-dvh w-screen flex flex-col items-center justify-center bg-background-base gap-6 p-6">
       <div class="flex flex-col items-center max-w-md text-center">
-        <Splash class="w-12 h-15 mb-4" />
+        <ProductSplash class="w-12 h-15 mb-4" iconClass="w-12 h-12 shrink-0 rounded-[12px] mb-4" />
         <p class="text-14-regular text-text-base">
           {unreachable()[0]}
           <span class="text-text-strong font-medium">{name()}</span>
@@ -593,15 +605,27 @@ function Routes() {
 
   return (
     <>
-      <Route component={LegacyServerLayout}>
-        <Show when={!settings.general.newLayoutDesigns()}>{<Route path="/" component={LegacyHome} />}</Show>
+      <Show when={!isQuantCode}>
+        <Route component={LegacyServerLayout}>
+          <Show when={!settings.general.newLayoutDesigns()}>{<Route path="/" component={LegacyHome} />}</Show>
+          <Route path="/:dir" component={DirectoryLayout}>
+            <Route path="/" component={() => <Navigate href="session" />} />
+            <Route path="/session/:id?" component={SessionRoute} />
+          </Route>
+        </Route>
+      </Show>
+      <Show when={isQuantCode}>
+        <Route path="/" component={QuantCodeHome} />
         <Route path="/:dir" component={DirectoryLayout}>
           <Route path="/" component={() => <Navigate href="session" />} />
           <Route path="/session/:id?" component={SessionRoute} />
         </Route>
-      </Route>
-      <Show when={settings.general.newLayoutDesigns()}>
+      </Show>
+      <Show when={!isQuantCode && settings.general.newLayoutDesigns()}>
         <Route path="/" component={NewHome} />
+        <Route path="/:dir/session/:id" component={LegacyTargetSessionRoute} />
+      </Show>
+      <Show when={isQuantCode}>
         <Route path="/:dir/session/:id" component={LegacyTargetSessionRoute} />
       </Show>
       <Route path="/new-session" component={DraftRoute} />

@@ -65,6 +65,7 @@ type SessionView = {
   pendingMessage?: string
   pendingMessageAt?: number
   todoCollapsed?: boolean
+  quantcodePanelOpened?: boolean
 }
 
 type TabHandoff = {
@@ -780,6 +781,7 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
         const s = createMemo(() => store.sessionView[key()] ?? { scroll: {} })
         const terminalOpened = createMemo(() => store.terminal?.opened ?? false)
         const reviewPanelOpened = createMemo(() => store.review?.panelOpened ?? DEFAULT_REVIEW_PANEL_OPENED)
+        const quantcodePanelOpened = createMemo(() => s().quantcodePanelOpened ?? false)
 
         function setTerminalOpened(next: boolean) {
           const current = store.terminal
@@ -803,6 +805,19 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
           const value = current.panelOpened ?? DEFAULT_REVIEW_PANEL_OPENED
           if (value === next) return
           setStore("review", "panelOpened", next)
+        }
+
+        function setQuantcodePanelOpened(next: boolean) {
+          const session = key()
+          const current = store.sessionView[session]
+          if (!current) {
+            setStore("sessionView", session, { scroll: {}, quantcodePanelOpened: next })
+            return
+          }
+
+          const value = current.quantcodePanelOpened ?? false
+          if (value === next) return
+          setStore("sessionView", session, "quantcodePanelOpened", next)
         }
 
         return {
@@ -846,6 +861,18 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
             },
             toggle() {
               setReviewPanelOpened(!reviewPanelOpened())
+            },
+          },
+          quantcodePanel: {
+            opened: quantcodePanelOpened,
+            open() {
+              setQuantcodePanelOpened(true)
+            },
+            close() {
+              setQuantcodePanelOpened(false)
+            },
+            toggle() {
+              setQuantcodePanelOpened(!quantcodePanelOpened())
             },
           },
           review: {

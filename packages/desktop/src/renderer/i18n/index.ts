@@ -1,4 +1,5 @@
 import * as i18n from "@solid-primitives/i18n"
+import { productCopy } from "../../../../app/src/brand"
 
 import { dict as desktopEn } from "./en"
 import { dict as desktopZh } from "./zh"
@@ -172,7 +173,8 @@ state.dict = build(state.locale)
 const translate = i18n.translator(() => state.dict, i18n.resolveTemplate)
 
 export function t(key: keyof Dictionary, params?: Record<string, string | number>) {
-  return translate(key, params)
+  const value = translate(key, params)
+  return import.meta.env.VITE_OPENCODE_CHANNEL === "quantcode" ? productCopy(value, "QuantCode") : value
 }
 
 export function initI18n(): Promise<Locale> {

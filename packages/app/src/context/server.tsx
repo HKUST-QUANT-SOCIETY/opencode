@@ -1,5 +1,5 @@
 import { createSimpleContext } from "@opencode-ai/ui/context"
-import { type Accessor, batch, createMemo } from "solid-js"
+import { type Accessor, batch, createEffect, createMemo } from "solid-js"
 import { createStore, type SetStoreFunction, type Store } from "solid-js/store"
 import { Persist, persisted } from "@/utils/persist"
 import { ServerScope } from "@/utils/server-scope"
@@ -103,7 +103,8 @@ export function createServerProjects<T extends ServerProjectState>(input: {
       setStore("projects", input.scope(), next)
     },
     last() {
-      return input.store.lastProject[input.scope()]
+      const last = input.store.lastProject[input.scope()]
+      return current().some((project) => project.worktree === last) ? last : undefined
     },
     touch(directory: string) {
       setStore("lastProject", input.scope(), directory)
@@ -208,6 +209,45 @@ export namespace ServerConnection {
     !!conn && (builtin(conn) || (conn.type === "http" && isLocalHost(conn.http.url) === "local"))
 }
 
+function isLoopbackHostname(hostname: string) {
+  return ["localhost", "127.0.0.1", "[::1]", "::1"].includes(hostname.toLowerCase())
+}
+
+function equivalentLoopbackUrl(left: string, right: string) {
+  if (left === right) return true
+
+  let a: URL
+  let b: URL
+  try {
+    a = new URL(left)
+    b = new URL(right)
+  } catch {
+    return false
+  }
+
+  if (!isLoopbackHostname(a.hostname) || !isLoopbackHostname(b.hostname)) return false
+  return (
+    a.protocol === b.protocol &&
+    (a.port || (a.protocol === "https:" ? "443" : "80")) === (b.port || (b.protocol === "https:" ? "443" : "80")) &&
+    a.pathname === b.pathname &&
+    a.search === b.search &&
+    a.hash === b.hash
+  )
+}
+
+/**
+ * Resolves a persisted/default key to the key currently exposed by the server list.
+ * Browsers can switch between localhost and 127.0.0.1 while retaining localStorage;
+ * those loopback aliases must not create a second active server scope.
+ */
+export function resolveServerKey(key: ServerConnection.Key, servers: ServerConnection.Any[]) {
+  const match = servers.find((conn) => {
+    const candidate = ServerConnection.key(conn)
+    return candidate === key || equivalentLoopbackUrl(conn.http.url, key)
+  })
+  return match ? ServerConnection.key(match) : key
+}
+
 export function nextServerAfterRemoval(
   servers: ServerConnection.Any[],
   removed: ServerConnection.Key,
@@ -248,8 +288,16 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
       active: props.defaultServer,
     })
 
+    const active = createMemo(() => resolveServerKey(state.active, allServers()))
+
+    createEffect(() => {
+      const resolved = active()
+      if (resolved !== state.active) setState("active", resolved)
+    })
+
     function setActive(input: ServerConnection.Key) {
-      if (state.active !== input) setState("active", input)
+      const resolved = resolveServerKey(input, allServers())
+      if (state.active !== resolved) setState("active", resolved)
     }
 
     function add(input: ServerConnection.Http) {
@@ -277,9 +325,9 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
       })
     }
 
-    const isReady = createMemo(() => ready() && !!state.active)
+    const isReady = createMemo(() => ready() && !!active())
 
-    const scope = (key = state.active) => ServerScope.fromServerKey(key, props.canonicalLocalServer)
+    const scope = (key = active()) => ServerScope.fromServerKey(key, props.canonicalLocalServer)
     const projects = createServerProjects({ scope, store, setStore })
     const projectStores = new Map<ServerConnection.Key, ReturnType<typeof createServerProjects>>()
     const projectsForServer = (key: ServerConnection.Key) => {
@@ -290,7 +338,7 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
       return next
     }
     const current: Accessor<ServerConnection.Any | undefined> = createMemo(
-      () => allServers().find((s) => ServerConnection.key(s) === state.active) ?? allServers()[0],
+      () => allServers().find((s) => ServerConnection.key(s) === active()) ?? allServers()[0],
     )
     const isLocal = createMemo(() => ServerConnection.local(current()))
 
@@ -298,7 +346,7 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
       ready: isReady,
       isLocal,
       get key() {
-        return state.active
+        return active()
       },
       get name() {
         return serverName(current())

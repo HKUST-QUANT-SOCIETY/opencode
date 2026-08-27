@@ -11,6 +11,7 @@ import type {
   WslServersEvent,
   WslServersState,
 } from "../../preload/types"
+import type { Channel } from "../constants"
 import { WSL_SERVERS_KEY } from "../store-keys"
 import { getStore } from "../store"
 import { expectOpencodeVersion, pendingRestartAfterWslInstall, wslServerIdsToStartOnInitialize } from "./startup"
@@ -44,7 +45,9 @@ type ControllerLogger = {
 }
 
 type WslServersControllerOptions = {
+  channel?: Channel
   logger?: ControllerLogger
+  installWslCli?: typeof installWslOpencode
   readServers?: () => WslServerConfig[]
   writeServers?: (servers: WslServerConfig[]) => void
   resolveOpencode?: typeof resolveWslOpencode
@@ -68,6 +71,8 @@ export function createWslServersController(
   const startAttempts = new Map<string, number>()
   let jobAbort: AbortController | undefined
   const logger = options?.logger
+  const channel = options?.channel
+  const installWslCli = options?.installWslCli ?? installWslOpencode
   const readServers = options?.readServers ?? readPersistedServers
   const writeServers = options?.writeServers ?? writePersistedServers
 
@@ -341,8 +346,11 @@ export function createWslServersController(
     },
 
     async installOpencode(name: string) {
+      if (channel === "quantcode") {
+        throw new Error("QuantCode WSL CLI installation is disabled until a QuantCode-compatible backend is available")
+      }
       await runJob({ kind: "install-opencode", distro: name, startedAt: Date.now() }, async (abort) => {
-        const result = await installWslOpencode(appVersion, name, { signal: abort.signal })
+        const result = await installWslCli(appVersion, name, { signal: abort.signal })
         if (result.code !== 0) {
           throw new Error(summarize(result.stderr || result.stdout) || "OpenCode installation failed")
         }
