@@ -15,6 +15,13 @@ import { Effect, Option } from "effect"
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse"
 import { HttpApiBuilder, HttpApiError } from "effect/unstable/httpapi"
 import { InstanceHttpApi } from "../api"
+import {
+  isForbiddenIP,
+  lookupAddresses,
+  probeProxyModels,
+  ProxyModelsQuery,
+  validateProxyModelsURL,
+} from "../groups/proxy-models"
 import { ConsoleSwitchPayload, SessionListQuery, ToolListQuery, WorktreeApiError } from "../groups/experimental"
 
 function mapWorktreeError<A, R>(self: Effect.Effect<A, Worktree.Error, R>) {
@@ -174,6 +181,32 @@ export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "exper
       return yield* mcp.resources()
     })
 
+    const proxyModels = Effect.fn("ExperimentalHttpApi.proxyModels")(function* (ctx: {
+      query: typeof ProxyModelsQuery.Type
+    }) {
+      let target: URL
+      try {
+        target = validateProxyModelsURL(ctx.query.url)
+      } catch {
+        return yield* Effect.fail(new HttpApiError.BadRequest({}))
+      }
+
+      // DNS resolution failure is unreachability, not a policy violation.
+      const addresses = yield* Effect.tryPromise({
+        try: () => lookupAddresses(target.hostname),
+        catch: () => undefined,
+      }).pipe(Effect.catch(() => Effect.succeed<string[] | undefined>(undefined)))
+      if (!addresses) return { ok: false, reachable: false }
+      // Re-check resolved addresses so DNS rebinding to a private IP is caught.
+      if (addresses.some((address) => isForbiddenIP(address))) {
+        return yield* Effect.fail(new HttpApiError.BadRequest({}))
+      }
+
+      // probeProxyModels never rejects: fetch and JSON failures are folded into
+      // the unreachable envelope.
+      return yield* Effect.promise(() => probeProxyModels(target))
+    })
+
     return handlers
       .handle("capabilities", capabilities)
       .handle("console", getConsole)
@@ -188,5 +221,6 @@ export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "exper
       .handle("session", session)
       .handle("sessionBackground", sessionBackground)
       .handle("resource", resource)
+      .handle("proxyModels", proxyModels)
   }),
 )

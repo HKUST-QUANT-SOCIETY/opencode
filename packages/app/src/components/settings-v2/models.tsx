@@ -7,7 +7,6 @@ import { TextInputV2 } from "@opencode-ai/ui/v2/text-input-v2"
 import { type Component, For, Show } from "solid-js"
 import { useLanguage } from "@/context/language"
 import { useModels } from "@/context/models"
-import { popularProviders } from "@/hooks/use-providers"
 import { SettingsListV2 } from "./parts/list"
 import { SettingsRowV2 } from "./parts/row"
 import "./settings-v2.css"
@@ -26,20 +25,7 @@ export const SettingsModelsV2: Component = () => {
     filterKeys: ["provider.name", "name", "id"],
     sortBy: (a, b) => a.name.localeCompare(b.name),
     groupBy: (x) => x.provider.id,
-    sortGroupsBy: (a, b) => {
-      const aIndex = popularProviders.indexOf(a.category)
-      const bIndex = popularProviders.indexOf(b.category)
-      const aPopular = aIndex >= 0
-      const bPopular = bIndex >= 0
-
-      if (aPopular && !bPopular) return -1
-      if (!aPopular && bPopular) return 1
-      if (aPopular && bPopular) return aIndex - bIndex
-
-      const aName = a.items[0].provider.name
-      const bName = b.items[0].provider.name
-      return aName.localeCompare(bName)
-    },
+    sortGroupsBy: (a, b) => a.items[0].provider.name.localeCompare(b.items[0].provider.name),
   })
 
   return (

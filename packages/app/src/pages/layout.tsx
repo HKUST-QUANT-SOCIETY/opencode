@@ -52,6 +52,7 @@ import { SessionRouteKey, SessionStateKey } from "@/utils/server-scope"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useTheme, type ColorScheme } from "@opencode-ai/ui/theme/context"
 import { useCommand, type CommandOption } from "@/context/command"
+import { useSettingsDialog, useSettingsCommand } from "@/components/settings-dialog"
 import { ConstrainDragXAxis, getDraggableId } from "@/utils/solid-dnd"
 import { DebugBar } from "@/components/debug-bar"
 import { HelpButton } from "@/components/help-button"
@@ -120,6 +121,8 @@ export default function LegacyLayout(props: ParentProps) {
   const providers = useProviders()
   const dialog = useDialog()
   const command = useCommand()
+  const openSettings = useSettingsDialog()
+  useSettingsCommand()
   const theme = useTheme()
   const language = useLanguage()
   createEffect(() => setV2Toast(false))
@@ -936,13 +939,6 @@ export default function LegacyLayout(props: ParentProps) {
         category: language.t("command.category.server"),
         onSelect: () => openServer(),
       },
-      {
-        id: "settings.open",
-        title: language.t("command.settings.open"),
-        category: language.t("command.category.settings"),
-        keybind: "mod+comma",
-        onSelect: () => openSettings(),
-      },
       ...(platform.platform === "desktop" && platform.exportDebugLogs
         ? [
             {
@@ -1107,9 +1103,9 @@ export default function LegacyLayout(props: ParentProps) {
 
   function connectProvider() {
     const run = ++dialogRun
-    void import("@/components/dialog-select-provider").then((x) => {
+    void import("@/components/dialog-custom-provider").then((x) => {
       if (dialogDead || dialogRun !== run) return
-      dialog.show(() => <x.DialogSelectProvider />)
+      dialog.show(() => <x.DialogCustomProvider />)
     })
   }
 
@@ -1118,17 +1114,6 @@ export default function LegacyLayout(props: ParentProps) {
     void import("@/components/dialog-select-server").then((x) => {
       if (dialogDead || dialogRun !== run) return
       dialog.show(() => <x.DialogSelectServer />)
-    })
-  }
-
-  function openSettings() {
-    const run = ++dialogRun
-    const module = settings.general.newLayoutDesigns()
-      ? import("@/components/settings-v2")
-      : import("@/components/dialog-settings")
-    void module.then((x) => {
-      if (dialogDead || dialogRun !== run) return
-      dialog.show(() => <x.DialogSettings />)
     })
   }
 
@@ -2199,7 +2184,7 @@ export default function LegacyLayout(props: ParentProps) {
         <div
           class="shrink-0 px-3 py-3"
           classList={{
-            hidden: store.gettingStartedDismissed || !(providers.all().size > 0 && providers.paid().length === 0),
+            hidden: store.gettingStartedDismissed || !(providers.all().size > 0 && providers.connected().length === 0),
           }}
         >
           <div class="rounded-xl bg-background-base shadow-xs-border-base" data-component="getting-started">

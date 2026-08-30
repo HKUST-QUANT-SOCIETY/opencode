@@ -15,6 +15,7 @@ import {
   WorkspaceRoutingQueryFields,
 } from "../middleware/workspace-routing"
 import { described } from "./metadata"
+import { ProxyModelsQuery, ProxyModelsResponse } from "./proxy-models"
 import { QueryBoolean } from "./query"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { ModelV2 } from "@opencode-ai/core/model"
@@ -99,6 +100,7 @@ export const ExperimentalPaths = {
   session: "/experimental/session",
   sessionBackground: "/experimental/session/:sessionID/background",
   resource: "/experimental/resource",
+  proxyModels: "/experimental/proxy/models",
 } as const
 
 export const ExperimentalApi = HttpApi.make("experimental")
@@ -253,6 +255,18 @@ export const ExperimentalApi = HttpApi.make("experimental")
             identifier: "experimental.resource.list",
             summary: "Get MCP resources",
             description: "Get all available MCP resources from connected servers. Optionally filter by name.",
+          }),
+        ),
+        HttpApiEndpoint.get("proxyModels", ExperimentalPaths.proxyModels, {
+          query: ProxyModelsQuery,
+          success: described(ProxyModelsResponse, "Credential-free provider model list probe"),
+          error: HttpApiError.BadRequest,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "experimental.proxy.models",
+            summary: "Probe provider model list",
+            description:
+              "Server-side probe of an https model-list URL without credentials. Cookies, API keys and browser headers are never forwarded. Any HTTP response marks the endpoint reachable; model IDs are only returned for 2xx JSON responses.",
           }),
         ),
       )

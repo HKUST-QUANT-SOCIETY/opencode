@@ -576,6 +576,22 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
     }),
   ]
 
+  // QuantCode: /goal 命令 — 预填目标模板，judge 由 run_agent 完成后的 Judge 步骤在对话链路里执行
+  const goalCmds = () => [
+    sessionCommand({
+      id: "quantcode.goal",
+      title: language.t("quantcode.goal.title"),
+      description: language.t("quantcode.goal.description"),
+      slash: "goal",
+      onSelect: () => {
+        const template = language.t("quantcode.goal.template")
+        // 光标落在占位符处，用户直接填写可验证完成标准
+        prompt.set([{ type: "text" as const, content: template, start: 0, end: template.length }], template.indexOf("<"))
+        actions.focusInput()
+      },
+    }),
+  ]
+
   const permissionsCmds = () => [
     permissionsCommand({
       id: "permissions.autoaccept",
@@ -599,5 +615,6 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
     ...mcpCmds(),
     ...permissionsCmds(),
     ...composeCmds(),
+    ...goalCmds(),
   ])
 }
