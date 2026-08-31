@@ -428,6 +428,143 @@
   display: none;
 }
 
+.qc-compose-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: 22px;
+  align-items: start;
+}
+
+.qc-compose-left {
+  min-width: 0;
+}
+
+/* --- 指标摘要卡片（compose 右列） --- */
+
+.qc-compose-metrics {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid rgba(18, 18, 18, 0.2);
+  border-radius: 2px;
+  background: rgba(250, 249, 246, 0.94);
+}
+
+.qc-compose-metrics .qc-section-label {
+  font-size: 9px;
+}
+
+.qc-metrics-empty {
+  margin: 14px 0 4px;
+  color: var(--qc-muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.qc-metrics-body {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.qc-metric {
+  min-height: 84px;
+  padding: 12px;
+  border: 1px solid rgba(18, 18, 18, 0.12);
+  border-radius: 2px;
+}
+
+.qc-metric-label {
+  display: block;
+  color: var(--qc-muted);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.qc-metric-value {
+  display: block;
+  margin-top: 10px;
+  font-size: 40px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.04em;
+}
+
+.qc-metric-positive .qc-metric-value {
+  color: #206b4a;
+}
+
+.qc-metric-negative .qc-metric-value {
+  color: #aa2e23;
+}
+
+.qc-metrics-strip {
+  display: flex;
+  gap: 14px;
+  grid-column: 1 / -1;
+  padding-top: 10px;
+  border-top: 1px solid rgba(18, 18, 18, 0.09);
+  font-size: 10px;
+  color: var(--qc-muted);
+}
+
+/* --- 阈值对比条（执行记录 / 通用） --- */
+
+.qc-progress {
+  padding: 9px 0;
+  border-bottom: 1px solid rgba(18, 18, 18, 0.09);
+}
+
+.qc-progress-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.qc-progress-head span {
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.qc-progress-head code {
+  color: var(--qc-muted);
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 9px;
+}
+
+.qc-progress-bar {
+  position: relative;
+  height: 5px;
+  margin-top: 8px;
+  background: rgba(18, 18, 18, 0.07);
+  border-radius: 999px;
+}
+
+.qc-progress-bar i:first-child {
+  display: block;
+  height: 5px;
+  background: #121212;
+  border-radius: 999px;
+}
+
+.qc-progress-bar.is-breach i:first-child {
+  background: #aa2e23;
+}
+
+.qc-progress-bar i:last-child {
+  position: absolute;
+  top: -3px;
+  width: 2px;
+  height: 11px;
+  background: rgba(18, 18, 18, 0.5);
+}
+
+.qc-progress-bar.is-breach i:last-child {
+  background: #aa2e23;
+}
+
 .qc-composer {
   position: relative;
   min-height: 124px;
@@ -1084,6 +1221,9 @@
   .qc-recents {
     width: calc(100% - 40px);
   }
+  .qc-compose-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
   .qc-composer {
     padding-right: 150px;
   }
@@ -1215,4 +1355,56 @@
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* --- 因子评估视图（factor-screen.tsx） --- */
+
+.qc-factor-rail {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 18px;
+  margin-top: 12px;
+}
+
+.qc-factor-node {
+  position: relative;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid rgba(18, 18, 18, 0.2);
+  border-radius: 2px;
+  background: rgba(250, 249, 246, 0.94);
+  font-size: 11px;
+}
+
+/* 节点连线 */
+.qc-factor-node:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 100%;
+  width: 18px;
+  border-top: 1px solid rgba(18, 18, 18, 0.4);
+}
+
+.qc-factor-node.is-done {
+  border-color: rgba(32, 107, 74, 0.5);
+}
+
+.qc-factor-index {
+  color: var(--qc-muted);
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 8px;
+}
+
+.qc-factor-node b {
+  margin-left: auto;
+  color: var(--qc-muted);
+  font-weight: 500;
+}
+
+.qc-factor-node.is-done b {
+  color: #206b4a;
 }

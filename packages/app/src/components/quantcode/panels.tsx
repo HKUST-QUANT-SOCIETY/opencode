@@ -26,9 +26,11 @@ import { useServer } from "@/context/server"
 import { useServerSDK } from "@/context/server-sdk"
 import { useLanguage } from "@/context/language"
 import { showToast } from "@/utils/toast"
+import { QcBigNumber, QcProgress, type MetricTone } from "./metric-cards"
 import { buildResearchInstruction, buildResumeInstruction, QUANTCODE_GROUPS, type QuantCodeGroup } from "./instructions"
 import { isRunAgentResult, type RunAgentResult, type TraceEvent } from "./result-contract"
 import { submitQuantCodeInstruction, type QuantCodeSubmissionHandler } from "./submission"
+import { FactorFlowView } from "./factor-screen"
 import "./panels.css"
 
 const [_trace, setTrace] = createSignal<RunAgentResult | null>(null)
@@ -153,7 +155,7 @@ const SKILLS = [
   { id: "memory-recall", label: "Memory Recall" },
 ] as const
 
-type DetailView = "compose" | "activity" | "gate" | "memory" | "settings"
+type DetailView = "compose" | "activity" | "gate" | "memory" | "settings" | "factor"
 type SubmitState = "idle" | "starting" | "submitted" | "error"
 type GateDecision = "approve" | "reject"
 
@@ -234,9 +236,70 @@ function eventIcon(type: string): IconProps["name"] {
   return "code-lines"
 }
 
+// ---------------------------------------------------------------------------
+// 指标摘要：从 output_data 与 risk_metrics 中防御式提取数值指标
+// ---------------------------------------------------------------------------
+
+const METRIC_LABELS: Record<string, string> = {
+  ic_mean: "IC 均值",
+  ic: "IC",
+  ir: "IR",
+  sharpe: "Sharpe",
+  annualized_return: "年化收益",
+  max_drawdown: "最大回撤",
+  tail_risk_var_99: "尾部风险 VaR99",
+}
+
+/** output_data 里的数值键 → 卡片数据（最多 4 个），数值型才渲染。 */
+function bigNumbersFromOutput(output?: Record<string, unknown>) {
+  if (!output) return []
+  const items: { label: string; value: string; tone: MetricTone }[] = []
+  for (const [key, raw] of Object.entries(output)) {
+    if (typeof raw !== "number" || !Number.isFinite(raw)) continue
+    const label = METRIC_LABELS[key] ?? key
+    const lower = key.toLowerCase()
+    const tone: MetricTone = /drawdown|var_|risk|vol/i.test(lower) ? (raw > 0 ? "negative" : "positive") : "ink"
+    const value = /ir|sharpe|ic/i.test(lower) ? raw.toFixed(2) : String(Math.round(raw * 1000) / 1000)
+    items.push({ label, value, tone })
+    if (items.length >= 4) return items
+  }
+  return items
+}
+
+/** 执行记录里的风险指标（gate/trace），数值型才画阈值对比条。
+ * 越界判定由 payload 驱动：后端 gate.reasons（breached_thresholds 权威）含该指标键 → is-breach；
+ * 前端不硬编码阈值数字。 */
+function riskProgressRows(run: RunAgentResult | null) {
+  if (!run) return []
+  const reasons = run.gate?.reasons ?? []
+  const breached = new Set(
+    reasons.filter((r): r is string => typeof r === "string" && r.length > 0),
+  )
+  const rows: { label: string; value: number; breached: boolean }[] = []
+  for (const source of [run.risk_metrics, run.gate?.risk_metrics]) {
+    if (!source) continue
+    for (const [key, raw] of Object.entries(source)) {
+      if (typeof raw !== "number" || !Number.isFinite(raw)) continue
+      if (!/max_drawdown|tail_risk_var_99/i.test(key)) continue
+      if (rows.some((row) => row.label === (METRIC_LABELS[key] ?? key))) continue
+      rows.push({
+        label: METRIC_LABELS[key] ?? key,
+        value: raw,
+        breached: breached.has(key),
+      })
+    }
+  }
+  return rows
+}
+
+function traceEventCount(run: RunAgentResult | null) {
+  return run?.execution_trace?.length ?? 0
+}
+
 function ActivityPanel(props: { onUseTask: (task: string) => void }): JSX.Element {
   const run = createMemo(() => _trace())
   const events = createMemo(() => run()?.execution_trace ?? [])
+  const riskRows = createMemo(() => riskProgressRows(run()))
 
   return (
     <div class="qc-detail-body">
@@ -267,6 +330,19 @@ function ActivityPanel(props: { onUseTask: (task: string) => void }): JSX.Elemen
               <code>{item().thread_id ?? "pending"}</code>
               <span>{formatTime(item().timestamp)}</span>
             </div>
+            <Show when={riskRows().length >= 2}>
+              <div class="qc-detail-section">
+                <span class="qc-section-label">RISK THRESHOLD</span>
+                <For each={riskRows()}>
+                  {(row) =>
+                    QcProgress({
+                      label: row.breached ? `${row.label}（越界）` : row.label,
+                      value: row.value,
+                    })
+                  }
+                </For>
+              </div>
+            </Show>
             <div class="qc-timeline">
               <For each={events()}>
                 {(event, index) => (
@@ -640,6 +716,7 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
   const navItems: { id: DetailView; label: string; icon: IconProps["name"] }[] = [
     { id: "compose", label: "新建研究", icon: "plus" },
     { id: "activity", label: "执行记录", icon: "checklist" },
+    { id: "factor", label: "因子评估", icon: "sliders" },
     { id: "gate", label: "HumanGate", icon: "review" },
     { id: "memory", label: "Memory", icon: "brain" },
   ]
@@ -760,62 +837,88 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
                 {_group().toUpperCase()} / {serverName().toUpperCase()}
               </span>
             </div>
-            <div class="qc-composer" classList={{ "has-error": state.submit === "error" }}>
-              <label for="qc-task">今天研究什么？</label>
-              <textarea
-                id="qc-task"
-                ref={taskInput}
-                value={state.task}
-                rows={2}
-                placeholder="描述任务，或输入 / 调用 Skill."
-                onInput={(event) => {
-                  setState({ task: event.currentTarget.value, submit: "idle", error: "" })
-                }}
-                onKeyDown={(event) => {
-                  if ((event.metaKey || event.ctrlKey) && event.key === "Enter") submitResearch()
-                }}
-              />
-              <div class="qc-composer-actions">
-                <label class="qc-skill-select">
-                  <Icon name="brain" size="small" />
-                  <span class="sr-only">选择 Skill</span>
-                  <select value={state.skill} onChange={(event) => setState("skill", event.currentTarget.value)}>
-                    <For each={SKILLS}>{(skill) => <option value={skill.id}>{skill.label}</option>}</For>
-                  </select>
-                </label>
-                <div class="qc-submit-cluster">
-                  <span>⌘ ENTER</span>
-                  <button
-                    type="button"
-                    disabled={!state.task.trim() || state.submit === "starting"}
-                    onClick={submitResearch}
-                  >
-                    <Show
-                      when={state.submit === "starting"}
-                      fallback={
-                        <>
-                          开始研究 <Icon name="arrow-right" size="small" />
-                        </>
-                      }
-                    >
-                      正在启动
-                    </Show>
-                  </button>
+            <div class="qc-compose-grid">
+              <div class="qc-compose-left">
+                <div class="qc-composer" classList={{ "has-error": state.submit === "error" }}>
+                  <label for="qc-task">今天研究什么？</label>
+                  <textarea
+                    id="qc-task"
+                    ref={taskInput}
+                    value={state.task}
+                    rows={2}
+                    placeholder="描述任务，或输入 / 调用 Skill."
+                    onInput={(event) => {
+                      setState({ task: event.currentTarget.value, submit: "idle", error: "" })
+                    }}
+                    onKeyDown={(event) => {
+                      if ((event.metaKey || event.ctrlKey) && event.key === "Enter") submitResearch()
+                    }}
+                  />
+                  <div class="qc-composer-actions">
+                    <label class="qc-skill-select">
+                      <Icon name="brain" size="small" />
+                      <span class="sr-only">选择 Skill</span>
+                      <select value={state.skill} onChange={(event) => setState("skill", event.currentTarget.value)}>
+                        <For each={SKILLS}>{(skill) => <option value={skill.id}>{skill.label}</option>}</For>
+                      </select>
+                    </label>
+                    <div class="qc-submit-cluster">
+                      <span>⌘ ENTER</span>
+                      <button
+                        type="button"
+                        disabled={!state.task.trim() || state.submit === "starting"}
+                        onClick={submitResearch}
+                      >
+                        <Show
+                          when={state.submit === "starting"}
+                          fallback={
+                            <>
+                              开始研究 <Icon name="arrow-right" size="small" />
+                            </>
+                          }
+                        >
+                          正在启动
+                        </Show>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                <div class="qc-submit-state" aria-live="polite">
+                  <Switch>
+                    <Match when={state.submit === "submitted"}>
+                      <span class="is-success">研究已提交到 {_group()} Multi-Agent 流。</span>
+                    </Match>
+                    <Match when={state.submit === "error"}>
+                      <span class="is-error">{state.error}</span>
+                    </Match>
+                    <Match when={state.submit === "starting"}>
+                      <span>正在建立任务上下文…</span>
+                    </Match>
+                  </Switch>
                 </div>
               </div>
-            </div>
-            <div class="qc-submit-state" aria-live="polite">
-              <Switch>
-                <Match when={state.submit === "submitted"}>
-                  <span class="is-success">研究已提交到 {_group()} Multi-Agent 流。</span>
-                </Match>
-                <Match when={state.submit === "error"}>
-                  <span class="is-error">{state.error}</span>
-                </Match>
-                <Match when={state.submit === "starting"}>
-                  <span>正在建立任务上下文…</span>
-                </Match>
-              </Switch>
+              <aside class="qc-compose-metrics" aria-label="指标摘要">
+                <span class="qc-section-label">指标摘要</span>
+                <Show when={_trace()} fallback={<p class="qc-metrics-empty">启动一次研究后，指标将实时汇总于此。</p>}>
+                  {(run) => (
+                    <div class="qc-metrics-body">
+                      <For each={bigNumbersFromOutput(run().output_data)}>
+                        {(card) => QcBigNumber({ label: card.label, value: card.value, tone: card.tone })}
+                      </For>
+                      <Show when={run().gate || traceEventCount(run()) > 0}>
+                        <div class="qc-metrics-strip">
+                          <Show when={run().gate}>
+                            <span>
+                              Gate {run()!.gate?.reasons?.length ?? 0} 项原因 · {statusLabel(run().status)}
+                            </span>
+                          </Show>
+                          <span>{traceEventCount(run())} 条 trace</span>
+                        </div>
+                      </Show>
+                    </div>
+                  )}
+                </Show>
+              </aside>
             </div>
           </section>
 
@@ -856,11 +959,13 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
                   <h2>
                     {state.view === "activity"
                       ? "执行记录"
-                      : state.view === "gate"
-                        ? "HumanGate"
-                        : state.view === "memory"
-                          ? "Memory"
-                          : "工作区设置"}
+                      : state.view === "factor"
+                        ? "因子评估"
+                        : state.view === "gate"
+                          ? "HumanGate"
+                          : state.view === "memory"
+                            ? "Memory"
+                            : "工作区设置"}
                   </h2>
                 </div>
                 <button type="button" aria-label="关闭详情" onClick={() => setState("view", "compose")}>
@@ -870,6 +975,9 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
               <Switch>
                 <Match when={state.view === "activity"}>
                   <ActivityPanel onUseTask={focusComposer} />
+                </Match>
+                <Match when={state.view === "factor"}>
+                  <FactorFlowView run={_trace()} />
                 </Match>
                 <Match when={state.view === "gate"}>
                   <GatePanel onResume={(threadId, decision) => sendGateDecision(decision)} />
