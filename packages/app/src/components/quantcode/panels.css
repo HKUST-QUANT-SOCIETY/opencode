@@ -1408,3 +1408,17 @@
 .qc-factor-node.is-done b {
   color: #206b4a;
 }
+
+/* --- PIT 估值视图（pit-screen.tsx） --- */
+.qc-pit-view { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px; }
+.qc-pit-doc { display: grid; grid-template-columns: 62px minmax(0, 1fr); gap: 10px; padding: 8px 0; border-bottom: 1px solid rgba(18, 18, 18, 0.09); }
+.qc-pit-doc time { color: var(--qc-muted); font-family: "SFMono-Regular", Consolas, monospace; font-size: 9px; }
+.qc-pit-card small { display: block; margin-top: 3px; color: var(--qc-muted); font-size: 10px; }
+.qc-pit-card.is-late strong { color: #aa2e23; }
+.qc-pit-late { display: inline-block; margin-left: 8px; padding: 1px 6px; color: #aa2e23; border: 1px solid rgba(170, 46, 35, 0.6); font-size: 9px; }
+.qc-pit-range-bar { position: relative; height: 5px; margin-top: 12px; background: rgba(18, 18, 18, 0.07); border-radius: 999px; }
+.qc-pit-range-bar i { position: absolute; top: 0; height: 5px; background: #121212; border-radius: 999px; }
+.qc-pit-range code { display: block; margin-top: 7px; color: var(--qc-muted); font-size: 9px; }
+.qc-pit-param { display: grid; gap: 5px; padding: 10px 0; border-bottom: 1px solid rgba(18, 18, 18, 0.09); font-size: 11px; font-weight: 600; }
+.qc-pit-param input { width: 100%; margin: 0; accent-color: var(--qc-ink); }
+.qc-pit-live { display: block; margin-top: 10px; font-size: 10px; color: var(--qc-muted); }

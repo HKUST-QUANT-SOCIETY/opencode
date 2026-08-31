@@ -31,6 +31,8 @@ import { buildResearchInstruction, buildResumeInstruction, QUANTCODE_GROUPS, typ
 import { isRunAgentResult, type RunAgentResult, type TraceEvent } from "./result-contract"
 import { submitQuantCodeInstruction, type QuantCodeSubmissionHandler } from "./submission"
 import { FactorFlowView } from "./factor-screen"
+import { NotificationsBell, NotificationsPanel, pendingNotifications } from "./notifications"
+import { PitValuationView } from "./pit-screen"
 import "./panels.css"
 
 const [_trace, setTrace] = createSignal<RunAgentResult | null>(null)
@@ -155,7 +157,7 @@ const SKILLS = [
   { id: "memory-recall", label: "Memory Recall" },
 ] as const
 
-type DetailView = "compose" | "activity" | "gate" | "memory" | "settings" | "factor"
+type DetailView = "compose" | "activity" | "gate" | "memory" | "settings" | "factor" | "pit"
 type SubmitState = "idle" | "starting" | "submitted" | "error"
 type GateDecision = "approve" | "reject"
 
@@ -554,6 +556,17 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
   let fieldCanvas: HTMLCanvasElement | undefined
   let focusLens: HTMLDivElement | undefined
   let sharpBrand: HTMLDivElement | undefined
+  const [notifOpen, setNotifOpen] = createSignal(false)
+  const notifItems = createMemo(() => pendingNotifications(_threadHistory(), _trace()))
+
+  /** 通知"去审批"：把目标 run 设为当前 trace 并切到 HumanGate 视图。 */
+  const focusGateThread = (threadId: string) => {
+    setNotifOpen(false)
+    const run = _threadHistory().find((item) => item.thread_id === threadId)
+    if (!run) return
+    updateQuantCodeTrace(run)
+    setState("view", "gate")
+  }
 
   // Trace bridge: the session-ui run_agent renderer pushes results here while
   // the panel is mounted; deregister on teardown so no stale writes land.
@@ -717,6 +730,7 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
     { id: "compose", label: "新建研究", icon: "plus" },
     { id: "activity", label: "执行记录", icon: "checklist" },
     { id: "factor", label: "因子评估", icon: "sliders" },
+    { id: "pit", label: "PIT 估值", icon: "file-tree" },
     { id: "gate", label: "HumanGate", icon: "review" },
     { id: "memory", label: "Memory", icon: "brain" },
   ]
@@ -731,6 +745,16 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
           QC
         </button>
         <nav>
+          <Show when={notifItems().length > 0 || notifOpen()} fallback={null}>
+            {(() => {
+              const bell = NotificationsBell({
+                count: notifItems().length,
+                onClick: () => setNotifOpen(!notifOpen()),
+              })
+              bell.classList.toggle("is-active", notifOpen())
+              return bell
+            })()}
+          </Show>
           <For each={navItems}>
             {(item) => (
               <button
@@ -750,6 +774,13 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
             )}
           </For>
         </nav>
+        <Show when={notifOpen()}>
+          {NotificationsPanel({
+            items: notifItems(),
+            onClose: () => setNotifOpen(false),
+            onApprove: focusGateThread,
+          })}
+        </Show>
         <div class="qc-rail-footer">
           <button
             type="button"
@@ -961,7 +992,9 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
                       ? "执行记录"
                       : state.view === "factor"
                         ? "因子评估"
-                        : state.view === "gate"
+                        : state.view === "pit"
+                          ? "PIT 估值"
+                          : state.view === "gate"
                           ? "HumanGate"
                           : state.view === "memory"
                             ? "Memory"
@@ -978,6 +1011,9 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
                 </Match>
                 <Match when={state.view === "factor"}>
                   <FactorFlowView run={_trace()} />
+                </Match>
+                <Match when={state.view === "pit"}>
+                  <PitValuationView run={_trace()} />
                 </Match>
                 <Match when={state.view === "gate"}>
                   <GatePanel onResume={(threadId, decision) => sendGateDecision(decision)} />
