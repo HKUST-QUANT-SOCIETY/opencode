@@ -16,6 +16,7 @@ import { isQuantCode } from "@/brand"
 import FileTree from "@/components/file-tree"
 import { SessionContextUsage } from "@/components/session-context-usage"
 import { SessionContextTab, SortableTab, FileVisual } from "@/components/session"
+import { QuantCodePanel } from "@/components/quantcode/panels"
 import { useCommand } from "@/context/command"
 import { useFile, type SelectedLineRange } from "@/context/file"
 import { useLanguage } from "@/context/language"
@@ -32,7 +33,6 @@ import {
 } from "@/pages/session/helpers"
 import { setSessionHandoff } from "@/pages/session/handoff"
 import { useSessionLayout } from "@/pages/session/session-layout"
-import { QuantCodePanel } from "@/components/quantcode/panels"
 
 type RenderDiff = (SnapshotFileDiff & { file: string }) | VcsFileDiff
 

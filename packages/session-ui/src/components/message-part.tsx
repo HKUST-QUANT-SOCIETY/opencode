@@ -61,6 +61,16 @@ import { animate } from "motion"
 import { useLocation } from "@solidjs/router"
 import { attached, inline, kind } from "./message-file"
 import { readPartText } from "./message-part-text"
+import {
+  notifyQuantCodeTrace,
+  setQuantCodeTraceListener,
+  type QuantCodeTracePayload,
+} from "./quantcode-trace-bridge"
+
+// Re-export so downstream packages (app) can reach the bridge through the
+// package's existing exports map without adding a new export entry.
+export { setQuantCodeTraceListener }
+export type { QuantCodeTracePayload }
 
 async function writeClipboard(text: string): Promise<boolean> {
   const body = typeof document === "undefined" ? undefined : document.body
@@ -2478,5 +2488,76 @@ ToolRegistry.register({
     )
 
     return <BasicTool icon="brain" status={props.status} trigger={trigger()} hideDetails />
+  },
+})
+
+// QuantCode run_agent (MCP tool)：完成后把 RunAgentResult 通过 trace 桥推给 app 侧面板。
+// 渲染保持默认工具展示；status=waiting_for_human 时在默认渲染之下追加一张
+// HumanGate 卡片（reasons + gate_id）。session-ui 没有 server SDK context，
+// 审批按钮留在 app 侧 QuantCode 面板，这里只提示用户去那里操作（诚实降级）。
+type QuantCodeGateInfo = {
+  gate_id?: string
+  reasons?: string[]
+}
+
+ToolRegistry.register({
+  name: "run_agent",
+  render(props) {
+    const notified = { value: false }
+    const [gate, setGate] = createSignal<QuantCodeGateInfo | null>(null)
+    createEffect(() => {
+      const status = props.status
+      if (status !== "completed" && status !== "waiting_for_human") return
+      const raw = props.output ?? props.metadata?.output
+      if (typeof raw !== "string" || !raw) return
+      let result: unknown
+      try {
+        result = JSON.parse(raw)
+      } catch {
+        return
+      }
+      if (result === null || typeof result !== "object" || !("status" in result)) return
+      if ((result as { status: unknown }).status === "waiting_for_human") {
+        const value = (result as { gate?: unknown }).gate
+        if (value !== null && typeof value === "object") setGate(value as QuantCodeGateInfo)
+      }
+      if (notified.value) return
+      notified.value = true
+      notifyQuantCodeTrace({
+        status: String((result as { status: unknown }).status),
+        result,
+        ...(typeof props.sessionID === "string" && props.sessionID ? { sessionId: props.sessionID } : {}),
+      })
+    })
+    return (
+      <div>
+        <GenericTool tool={props.tool} status={props.status} hideDetails={props.hideDetails} input={props.input} />
+        <Show when={gate()}>
+          {(value) => (
+            <div
+              style={{
+                border: "1px solid var(--border-weak-base, rgba(0,0,0,0.1))",
+                "border-radius": "8px",
+                padding: "8px 10px",
+                "margin-top": "4px",
+                "font-size": "12px",
+                "line-height": "1.5",
+              }}
+            >
+              <div style={{ "font-weight": "500" }}>{`⏸️ 等待人工审批（HumanGate）`}</div>
+              <Show when={value().gate_id}>
+                <div class="text-12-regular text-text-weak" style={{ "font-family": "monospace" }}>
+                  {`gate_id: ${value().gate_id}`}
+                </div>
+              </Show>
+              <For each={value().reasons ?? []}>
+                {(reason) => <div class="text-12-regular">{`• ${reason}`}</div>}
+              </For>
+              <div class="text-12-regular text-text-weak">{`请在侧栏 QuantCode 面板的 HumanGate 页执行 Approve / Reject 审批`}</div>
+            </div>
+          )}
+        </Show>
+      </div>
+    )
   },
 })

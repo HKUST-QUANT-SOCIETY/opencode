@@ -215,6 +215,47 @@ describe("experimental HttpApi", () => {
   )
 
   it.instance(
+    "rejects forbidden proxy model probe targets with 400",
+    () =>
+      Effect.gen(function* () {
+        const tmp = yield* TestInstance
+        const forbidden = [
+          "http://api.example.com/v1/models",
+          "https://localhost/v1/models",
+          "https://127.0.0.1/v1/models",
+          "https://192.168.1.1/v1/models",
+          "https://[::1]/v1/models",
+          "https://user:pass@api.example.com/v1/models",
+        ]
+        for (const url of forbidden) {
+          const response = yield* request(
+            `${ExperimentalPaths.proxyModels}?${new URLSearchParams({ url })}`,
+            tmp.directory,
+          )
+          expect(response.status).toBe(400)
+        }
+      }),
+    { config: { formatter: false, lsp: false } },
+  )
+
+  it.instance(
+    "returns unreachable for a valid public host that does not resolve",
+    () =>
+      Effect.gen(function* () {
+        const tmp = yield* TestInstance
+        const response = yield* request(
+          `${ExperimentalPaths.proxyModels}?${new URLSearchParams({
+            url: `https://proxy-models-missing-${Date.now()}.invalid/v1/models`,
+          })}`,
+          tmp.directory,
+        )
+        expect(response.status).toBe(200)
+        expect(yield* json(response)).toEqual({ ok: false, reachable: false })
+      }),
+    { config: { formatter: false, lsp: false } },
+  )
+
+  it.instance(
     "serves Console org switch through the default server app",
     () =>
       Effect.gen(function* () {

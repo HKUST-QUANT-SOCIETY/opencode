@@ -5,18 +5,6 @@ import { Iterable, pipe } from "effect"
 import type { Accessor } from "solid-js"
 import { selectProviderCatalog } from "./provider-catalog"
 
-export const popularProviders = [
-  "opencode",
-  "opencode-go",
-  "anthropic",
-  "github-copilot",
-  "openai",
-  "google",
-  "openrouter",
-  "vercel",
-]
-const popularProviderSet = new Set(popularProviders)
-
 export function useProviders(directory?: Accessor<string | undefined>) {
   const serverSync = useServerSync()
   const params = useParams()
@@ -37,35 +25,19 @@ export function useProviders(directory?: Accessor<string | undefined>) {
       global: serverSync().data.provider,
     })
   }
+  const connected = () => {
+    const connectedIDs = new Set(providers().connected)
+    return pipe(
+      providers().all,
+      Iterable.map(([, p]) => p),
+      Iterable.filter((p) => connectedIDs.has(p.id)),
+      (v) => Array.from(v),
+    )
+  }
   return {
     all: () => providers().all,
     default: () => providers().default,
-    popular: () =>
-      pipe(
-        providers().all,
-        Iterable.map(([, p]) => p),
-        Iterable.filter((p) => popularProviderSet.has(p.id)),
-        (v) => Array.from(v),
-      ),
-    connected: () => {
-      const connected = new Set(providers().connected)
-      return pipe(
-        providers().all,
-        Iterable.map(([, p]) => p),
-        Iterable.filter((p) => connected.has(p.id)),
-        (v) => Array.from(v),
-      )
-    },
-    paid: () => {
-      const connected = new Set(providers().connected)
-      return [
-        ...Iterable.filter(
-          providers().all,
-          ([id]) =>
-            connected.has(id) &&
-            (id !== "opencode" || Object.values(providers().all.get(id)?.models ?? {}).some((m) => m.cost?.input)),
-        ),
-      ]
-    },
+    connected,
+    paid: connected,
   }
 }

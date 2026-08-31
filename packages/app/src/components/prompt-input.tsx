@@ -1373,8 +1373,8 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     style: control(),
     onClose: restoreFocus,
     onUnpaidClick: () => {
-      void import("@/components/dialog-select-model-unpaid").then((x) => {
-        dialog.show(() => <x.DialogSelectModelUnpaid model={props.controls.model.selection} />)
+      void import("@/components/dialog-select-model").then((x) => {
+        dialog.show(() => <x.DialogSelectModel model={props.controls.model.selection} />)
       })
     },
   }))
@@ -1829,10 +1829,8 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                                   class="min-w-0 max-w-[320px] text-13-regular text-text-base group"
                                   style={control()}
                                   onClick={() => {
-                                    void import("@/components/dialog-select-model-unpaid").then((x) => {
-                                      dialog.show(() => (
-                                        <x.DialogSelectModelUnpaid model={props.controls.model.selection} />
-                                      ))
+                                    void import("@/components/dialog-select-model").then((x) => {
+                                      dialog.show(() => <x.DialogSelectModel model={props.controls.model.selection} />)
                                     })
                                   }}
                                 >

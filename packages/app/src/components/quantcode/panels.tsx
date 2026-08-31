@@ -3,12 +3,29 @@
  *
  * The module-level trace store is intentionally preserved so MCP tool results,
  * HumanGate resumes, and the full-screen workspace share one source of truth.
+ * Trace payloads pushed by the session-ui run_agent renderer arrive through the
+ * quantcode-trace-bridge and join the same store, keeping one source of truth.
  */
-import { For, Match, Show, Switch, createMemo, createSignal, onCleanup, onMount, type JSX } from "solid-js"
+import {
+  For,
+  Match,
+  Show,
+  Switch,
+  createEffect,
+  createMemo,
+  createSignal,
+  onCleanup,
+  onMount,
+  type JSX,
+} from "solid-js"
 import { createStore } from "solid-js/store"
 import { Icon, type IconProps } from "@opencode-ai/ui/icon"
+import { setQuantCodeTraceListener, type QuantCodeTracePayload } from "@opencode-ai/session-ui/message-part"
 import { usePrompt } from "@/context/prompt"
 import { useServer } from "@/context/server"
+import { useServerSDK } from "@/context/server-sdk"
+import { useLanguage } from "@/context/language"
+import { showToast } from "@/utils/toast"
 import { buildResearchInstruction, buildResumeInstruction, QUANTCODE_GROUPS, type QuantCodeGroup } from "./instructions"
 import { isRunAgentResult, type RunAgentResult, type TraceEvent } from "./result-contract"
 import { submitQuantCodeInstruction, type QuantCodeSubmissionHandler } from "./submission"
@@ -17,6 +34,8 @@ import "./panels.css"
 const [_trace, setTrace] = createSignal<RunAgentResult | null>(null)
 const [_group, setGroup] = createSignal("factor")
 const [_threadHistory, setThreadHistory] = createSignal<RunAgentResult[]>([])
+/** run_agent 结果所属的 opencode session；HumanGate resume 需要向它发 prompt */
+const [_sessionId, setSessionId] = createSignal<string | undefined>(undefined)
 
 try {
   const raw = localStorage.getItem("quantcode:thread_cache")
@@ -95,6 +114,34 @@ export function setQuantCodeGroup(group: string) {
   setGroup(group)
 }
 
+// ---------------------------------------------------------------------------
+// 桥接：接收 run_agent 工具渲染推送的 trace，处理跨会话重置（B19-03）
+// ---------------------------------------------------------------------------
+
+let lastSessionId: string | undefined
+let lastResultJson: string | undefined
+
+function resetQuantCodeState() {
+  setTrace(null)
+  setThreadHistory([])
+}
+
+function handleQuantCodeTracePayload(payload: QuantCodeTracePayload) {
+  // 新会话信号：先清空上一会话的 trace/history，避免跨会话泄漏
+  if (typeof payload.sessionId === "string" && payload.sessionId && payload.sessionId !== lastSessionId) {
+    lastSessionId = payload.sessionId
+    resetQuantCodeState()
+  }
+  // resume 指令需要的 sessionId：在去重 return 之前记录，保证 gate 面板随时可取
+  if (typeof payload.sessionId === "string" && payload.sessionId) setSessionId(payload.sessionId)
+  // 工具 part 重挂载会重复推送同一结果，去重避免 history 出现重复条目
+  const json = JSON.stringify(payload.result)
+  if (json === lastResultJson) return
+  lastResultJson = json
+  if (payload.result === null || typeof payload.result !== "object") return
+  updateQuantCodeTrace(payload.result as RunAgentResult)
+}
+
 export function quantCodeGroup() {
   return _group() as QuantCodeGroup
 }
@@ -108,6 +155,7 @@ const SKILLS = [
 
 type DetailView = "compose" | "activity" | "gate" | "memory" | "settings"
 type SubmitState = "idle" | "starting" | "submitted" | "error"
+type GateDecision = "approve" | "reject"
 
 function readIdentity() {
   try {
@@ -415,6 +463,8 @@ export type QuantCodePanelProps = {
 export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
   const prompt = props.onSubmitInstruction ? undefined : usePrompt()
   const server = useServer()
+  const serverSDK = useServerSDK()
+  const language = useLanguage()
   const [state, setState] = createStore({
     view: "compose" as DetailView,
     task: "",
@@ -428,6 +478,11 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
   let fieldCanvas: HTMLCanvasElement | undefined
   let focusLens: HTMLDivElement | undefined
   let sharpBrand: HTMLDivElement | undefined
+
+  // Trace bridge: the session-ui run_agent renderer pushes results here while
+  // the panel is mounted; deregister on teardown so no stale writes land.
+  onMount(() => setQuantCodeTraceListener(handleQuantCodeTracePayload))
+  onCleanup(() => setQuantCodeTraceListener(null))
 
   const selectedSkill = createMemo(() => SKILLS.find((skill) => skill.id === state.skill) ?? SKILLS[0])
   const gateWaiting = createMemo(() => _trace()?.status === "waiting_for_human")
@@ -525,9 +580,31 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
     submitInstruction(instruction())
   }
 
-  const resumeResearchGate = (threadId: string, decision: "approve" | "reject") => {
-    if (state.submit === "starting") return
-    submitInstruction(buildResumeInstruction(threadId, decision), "activity")
+  /**
+   * HumanGate 审批 → resume：向 run_agent 结果所属的 session 通过 server SDK
+   * promptAsync 发结构化短指令（立即返回，不阻塞整轮 agent 回合），由 Agent 调
+   * run_agent(resume) 工具恢复执行。day5 P0-4 的实现，接到 lens 侧 GatePanel 按钮。
+   */
+  const sendGateDecision = (decision: GateDecision) => {
+    const sessionId = _sessionId()
+    if (!sessionId || state.submit === "starting") return
+    setState({ submit: "starting", error: "" })
+    try {
+      void serverSDK().client.session.promptAsync({
+        sessionID: sessionId,
+        parts: [
+          {
+            type: "text",
+            text: buildResumeInstruction(_trace()?.thread_id ?? "", decision),
+          },
+        ],
+      })
+      showToast({ title: language.t("quantcode.gate.resumeSent"), variant: "success" })
+      setState({ view: "activity", submit: "submitted" })
+    } catch {
+      setState({ submit: "error", error: language.t("quantcode.gate.resumeFailed") })
+      showToast({ title: language.t("quantcode.gate.resumeFailed"), variant: "error" })
+    }
   }
 
   const focusComposer = (task?: string) => {
@@ -795,7 +872,7 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
                   <ActivityPanel onUseTask={focusComposer} />
                 </Match>
                 <Match when={state.view === "gate"}>
-                  <GatePanel onResume={resumeResearchGate} />
+                  <GatePanel onResume={(threadId, decision) => sendGateDecision(decision)} />
                 </Match>
                 <Match when={state.view === "memory"}>
                   <MemoryPanel />

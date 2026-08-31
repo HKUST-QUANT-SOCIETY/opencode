@@ -5,10 +5,9 @@ import { SelectV2 } from "@opencode-ai/ui/v2/select-v2"
 import { Switch } from "@opencode-ai/ui/v2/switch-v2"
 import { TextInputV2 } from "@opencode-ai/ui/v2/text-input-v2"
 import { useTheme, type ColorScheme } from "@opencode-ai/ui/theme/context"
-import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useLanguage } from "@/context/language"
 import { usePermission } from "@/context/permission"
-import { usePlatform } from "@/context/platform"
+import { usePlatform, type DisplayBackend } from "@/context/platform"
 import { useServerSync } from "@/context/server-sync"
 import { useServerSDK } from "@/context/server-sdk"
 import { useUpdaterAction } from "../updater-action"
@@ -87,7 +86,6 @@ export const SettingsGeneralV2: Component<{
   const language = useLanguage()
   const permission = usePermission()
   const platform = usePlatform()
-  const dialog = useDialog()
   const settings = useSettings()
   const serverSync = useServerSync()
   const serverSdk = useServerSDK()
@@ -117,6 +115,7 @@ export const SettingsGeneralV2: Component<{
     permission.disableAutoAccept(props.sessionID, value)
   }
   const desktop = createMemo(() => platform.platform === "desktop")
+  const linux = createMemo(() => platform.platform === "desktop" && platform.os === "linux")
 
   const themeOptions = createMemo<ThemeOption[]>(() => theme.ids().map((id) => ({ id, name: theme.name(id) })))
 
@@ -127,6 +126,12 @@ export const SettingsGeneralV2: Component<{
         .then((res) => res.data ?? [])
         .catch(() => [] as ShellOption[]),
     { initialValue: [] as ShellOption[] },
+  )
+
+  const [displayBackend, { refetch: refetchDisplayBackend }] = createResource(
+    () => (linux() && platform.getDisplayBackend ? true : false),
+    () => Promise.resolve(platform.getDisplayBackend?.() ?? null).catch(() => null as DisplayBackend | null),
+    { initialValue: null as DisplayBackend | null },
   )
 
   const [pinchZoom, { mutate: setPinchZoom }] = createResource(
@@ -172,6 +177,14 @@ export const SettingsGeneralV2: Component<{
 
     return options
   })
+
+  const onDisplayBackendChange = (checked: boolean) => {
+    const update = platform.setDisplayBackend?.(checked ? "wayland" : "auto")
+    if (!update) return
+    void update.finally(() => {
+      void refetchDisplayBackend()
+    })
+  }
 
   const onPinchZoomChange = (checked: boolean) => {
     setPinchZoom(checked)
@@ -313,22 +326,27 @@ export const SettingsGeneralV2: Component<{
         </SettingsRowV2>
 
         <SettingsRowV2
-          title={language.t("settings.general.row.newLayoutDesigns.title")}
-          description={language.t("settings.general.row.newLayoutDesigns.description")}
+          title={language.t("settings.general.row.showNavigation.title")}
+          description={language.t("settings.general.row.showNavigation.description")}
         >
-          <div data-action="settings-new-layout-designs">
+          <div data-action="settings-show-navigation">
             <Switch
-              checked={settings.general.newLayoutDesigns()}
-              onChange={(checked) => {
-                settings.general.setNewLayoutDesigns(checked)
-                if (checked) return
-                void import("@/components/dialog-settings").then((module) => {
-                  dialog.show(() => <module.DialogSettings />)
-                })
-              }}
+              checked={settings.general.showNavigation()}
+              onChange={(checked) => settings.general.setShowNavigation(checked)}
             />
           </div>
         </SettingsRowV2>
+
+        <Show when={linux() && platform.getDisplayBackend}>
+          <SettingsRowV2
+            title={language.t("settings.general.row.wayland.title")}
+            description={language.t("settings.general.row.wayland.description")}
+          >
+            <div data-action="settings-wayland">
+              <Switch checked={displayBackend.latest === "wayland"} onChange={onDisplayBackendChange} />
+            </div>
+          </SettingsRowV2>
+        </Show>
 
         <Show when={mobile() && import.meta.env.VITE_OPENCODE_CHANNEL !== "prod"}>
           <SettingsRowV2

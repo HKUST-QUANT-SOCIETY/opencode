@@ -2,25 +2,39 @@ import { Button } from "@opencode-ai/ui/button"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { IconButton } from "@opencode-ai/ui/icon-button"
-import { ProviderIcon } from "@opencode-ai/ui/provider-icon"
 import { useMutation } from "@tanstack/solid-query"
 import { TextField } from "@opencode-ai/ui/text-field"
 import { showToast } from "@/utils/toast"
-import { type Accessor, batch, For } from "solid-js"
+import { batch, createSignal, For, Show } from "solid-js"
 import { createStore, produce } from "solid-js/store"
 import { Link } from "@/components/link"
 import { useServerSDK } from "@/context/server-sdk"
 import { useServerSync } from "@/context/server-sync"
 import { useLanguage } from "@/context/language"
 import { type FormState, headerRow, modelRow, validateCustomProvider } from "./dialog-custom-provider-form"
-import { DialogSelectProvider } from "./dialog-select-provider"
 
-type Props = {
-  back?: "providers" | "close"
-  directory?: Accessor<string | undefined>
+const segmenter =
+  typeof Intl !== "undefined" && "Segmenter" in Intl
+    ? new Intl.Segmenter(undefined, { granularity: "grapheme" })
+    : undefined
+
+function first(value: string) {
+  if (!value) return ""
+  if (!segmenter) return Array.from(value)[0] ?? ""
+  return segmenter.segment(value)[Symbol.iterator]().next().value?.segment ?? Array.from(value)[0] ?? ""
 }
 
-export function DialogCustomProvider(props: Props) {
+const slugify = (value: string) =>
+  value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-_]+/g, "-")
+    .replace(/^[-_]+/, "")
+    .replace(/[-_]+$/, "")
+
+const ENV_KEY = /^\{env:[^}]+\}$/
+
+export function DialogCustomProvider() {
   const dialog = useDialog()
   const serverSync = useServerSync()
   const serverSDK = useServerSDK()
@@ -35,13 +49,11 @@ export function DialogCustomProvider(props: Props) {
     headers: [headerRow()],
     err: {},
   })
+  const [providerIDEdited, setProviderIDEdited] = createSignal(false)
+  const [fetching, setFetching] = createSignal(false)
 
   const goBack = () => {
-    if (props.back === "close") {
-      dialog.close()
-      return
-    }
-    dialog.show(() => <DialogSelectProvider directory={props.directory} />)
+    dialog.close()
   }
 
   const addModel = () => {
@@ -83,9 +95,15 @@ export function DialogCustomProvider(props: Props) {
   }
 
   const setField = (key: "providerID" | "name" | "baseURL" | "apiKey", value: string) => {
-    setForm(key, value)
-    if (key === "apiKey") return
-    setForm("err", key, undefined)
+    batch(() => {
+      if (key === "providerID") setProviderIDEdited(true)
+      if (key === "name" && !providerIDEdited()) {
+        setForm("providerID", slugify(value))
+        setForm("err", "providerID", undefined)
+      }
+      setForm(key, value)
+      if (key !== "apiKey") setForm("err", key, undefined)
+    })
   }
 
   const setModel = (index: number, key: "id" | "name", value: string) => {
@@ -162,6 +180,76 @@ export function DialogCustomProvider(props: Props) {
     saveMutation.mutate(result)
   }
 
+  const isEnvKey = () => ENV_KEY.test(form.apiKey.trim())
+  const canFetchModels = () => /^https?:\/\//.test(form.baseURL.trim()) && !isEnvKey()
+
+  const parseModelIDs = (json: unknown) => {
+    const list = Array.isArray((json as { data?: unknown })?.data)
+      ? ((json as { data: unknown[] }).data as unknown[])
+      : Array.isArray(json)
+        ? json
+        : []
+    return Array.from(
+      new Set(
+        list
+          .map((item) => (typeof item === "string" ? item : (item as { id?: unknown })?.id))
+          .filter((id): id is string => typeof id === "string" && id.trim().length > 0)
+          .map((id) => id.trim()),
+      ),
+    )
+  }
+
+  // Second hop: ask the local OpenCode server to probe the URL without any
+  // credentials. Used when the browser cannot reach the provider directly
+  // (CORS, mixed content, TLS).
+  const fetchModelsViaServer = async () => {
+    const response = await fetch(`${serverSDK().url}/experimental/proxy/models?url=${encodeURIComponent(form.baseURL.trim())}`, {
+      signal: AbortSignal.timeout(15_000),
+    })
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    const json = (await response.json()) as { ok?: boolean; reachable?: boolean; models?: string[] }
+    if (!json.reachable) throw new Error(language.t("provider.custom.error.fetchFailed"))
+    if (!json.models || json.models.length === 0) throw new Error(language.t("provider.custom.error.fetchFailed"))
+    return json.models
+  }
+
+  const applyModels = (ids: string[]) => {
+    setForm(
+      "models",
+      ids.map((id) => ({ ...modelRow(), id })),
+    )
+  }
+
+  const fetchModels = async () => {
+    if (fetching() || !canFetchModels()) return
+    setFetching(true)
+    try {
+      const baseURL = form.baseURL.trim()
+      const apiKey = form.apiKey.trim()
+      try {
+        const response = await fetch(new URL("models", baseURL.endsWith("/") ? baseURL : `${baseURL}/`), {
+          ...(apiKey ? { headers: { Authorization: `Bearer ${apiKey}` } } : {}),
+          signal: AbortSignal.timeout(10_000),
+        })
+        if (!response.ok) throw new Error(`HTTP ${response.status}`)
+        const ids = parseModelIDs(await response.json())
+        if (ids.length === 0) throw new Error(language.t("provider.custom.error.fetchFailed"))
+        applyModels(ids)
+      } catch {
+        // Direct browser fetch failed (network, CORS, mixed content): retry
+        // through the server's credential-free probe endpoint before giving up.
+        applyModels(await fetchModelsViaServer())
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      showToast({ title: language.t("provider.custom.error.fetchFailed"), description: message })
+    } finally {
+      setFetching(false)
+    }
+  }
+
+  const initial = () => first(form.name.trim() || form.providerID.trim() || "?")
+
   return (
     <Dialog
       title={
@@ -177,7 +265,9 @@ export function DialogCustomProvider(props: Props) {
     >
       <div class="flex flex-col gap-6 px-2.5 pb-3 overflow-y-auto max-h-[60vh]">
         <div class="px-2.5 flex gap-4 items-center">
-          <ProviderIcon id="synthetic" class="size-5 shrink-0 icon-strong-base" />
+          <div class="size-5 shrink-0 rounded-full bg-surface-raised-base flex items-center justify-center text-11-medium text-text-base uppercase">
+            {initial()}
+          </div>
           <div class="text-16-medium text-text-strong">{language.t("provider.custom.title")}</div>
         </div>
 
@@ -193,21 +283,21 @@ export function DialogCustomProvider(props: Props) {
           <div class="flex flex-col gap-4">
             <TextField
               autofocus
-              label={language.t("provider.custom.field.providerID.label")}
-              placeholder={language.t("provider.custom.field.providerID.placeholder")}
-              description={language.t("provider.custom.field.providerID.description")}
-              value={form.providerID}
-              onChange={(v) => setField("providerID", v)}
-              validationState={form.err.providerID ? "invalid" : undefined}
-              error={form.err.providerID}
-            />
-            <TextField
               label={language.t("provider.custom.field.name.label")}
               placeholder={language.t("provider.custom.field.name.placeholder")}
               value={form.name}
               onChange={(v) => setField("name", v)}
               validationState={form.err.name ? "invalid" : undefined}
               error={form.err.name}
+            />
+            <TextField
+              label={language.t("provider.custom.field.providerID.label")}
+              placeholder={language.t("provider.custom.field.providerID.placeholder")}
+              description={language.t("provider.custom.field.providerID.auto")}
+              value={form.providerID}
+              onChange={(v) => setField("providerID", v)}
+              validationState={form.err.providerID ? "invalid" : undefined}
+              error={form.err.providerID}
             />
             <TextField
               label={language.t("provider.custom.field.baseURL.label")}
@@ -227,7 +317,28 @@ export function DialogCustomProvider(props: Props) {
           </div>
 
           <div class="flex flex-col gap-3">
-            <label class="text-12-medium text-text-weak">{language.t("provider.custom.models.label")}</label>
+            <div class="flex items-center justify-between gap-2">
+              <label class="text-12-medium text-text-weak">{language.t("provider.custom.models.label")}</label>
+              <Show
+                when={isEnvKey()}
+                fallback={
+                  <Button
+                    type="button"
+                    size="small"
+                    variant="ghost"
+                    icon="arrow-down-to-line"
+                    onClick={() => void fetchModels()}
+                    disabled={fetching() || !canFetchModels()}
+                  >
+                    {fetching()
+                      ? language.t("provider.custom.status.fetching")
+                      : language.t("provider.custom.action.fetchModels")}
+                  </Button>
+                }
+              >
+                <span class="text-12-regular text-text-weak">{language.t("provider.custom.hint.apiKeyEnv")}</span>
+              </Show>
+            </div>
             <For each={form.models}>
               {(m, i) => (
                 <div class="flex gap-2 items-start" data-row={m.row}>
