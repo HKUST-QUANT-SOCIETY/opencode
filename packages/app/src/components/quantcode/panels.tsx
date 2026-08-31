@@ -20,6 +20,7 @@ import {
 } from "solid-js"
 import { createStore } from "solid-js/store"
 import { Icon, type IconProps } from "@opencode-ai/ui/icon"
+import { Tag } from "@opencode-ai/ui/tag"
 import { setQuantCodeTraceListener, type QuantCodeTracePayload } from "@opencode-ai/session-ui/message-part"
 import { usePrompt } from "@/context/prompt"
 import { useServer } from "@/context/server"
@@ -30,6 +31,7 @@ import { QcBigNumber, QcProgress, type MetricTone } from "./metric-cards"
 import { buildResearchInstruction, buildResumeInstruction, QUANTCODE_GROUPS, type QuantCodeGroup } from "./instructions"
 import { isRunAgentResult, type RunAgentResult, type TraceEvent } from "./result-contract"
 import { submitQuantCodeInstruction, type QuantCodeSubmissionHandler } from "./submission"
+import { resolveRole } from "./roles"
 import { FactorFlowView } from "./factor-screen"
 import { NotificationsBell, NotificationsPanel, pendingNotifications } from "./notifications"
 import { PitValuationView } from "./pit-screen"
@@ -379,6 +381,7 @@ function GatePanel(props: { onResume: (threadId: string, decision: "approve" | "
   const run = createMemo(() => _trace())
   const gate = createMemo(() => run()?.gate)
   const waiting = createMemo(() => run()?.status === "waiting_for_human" && !!gate())
+  const role = resolveRole(readIdentity())
 
   return (
     <div class="qc-detail-body">
@@ -413,7 +416,7 @@ function GatePanel(props: { onResume: (threadId: string, decision: "approve" | "
               <span class="qc-section-label">RISK METRICS</span>
               <pre class="qc-code-block">{JSON.stringify(item().risk_metrics ?? {}, null, 2)}</pre>
             </div>
-            <Show when={waiting() && run()?.thread_id}>
+            <Show when={waiting() && run()?.thread_id && role === "approver"}>
               <div class="qc-gate-actions">
                 <button
                   type="button"
@@ -429,6 +432,12 @@ function GatePanel(props: { onResume: (threadId: string, decision: "approve" | "
                 >
                   拒绝并停止
                 </button>
+              </div>
+            </Show>
+            <Show when={waiting() && role === "analyst"}>
+              <div class="qc-gate-actions qc-gate-readonly">
+                <p>由风控负责人审批（当前身份：{role}）</p>
+                <p>可通过 PR 评论提出意见</p>
               </div>
             </Show>
           </>
@@ -489,7 +498,7 @@ function SettingsPanel(props: {
       <div class="qc-setting-row">
         <div>
           <span class="qc-section-label">SSH IDENTITY</span>
-          <strong>{readIdentity()}</strong>
+          <strong>{readIdentity()}</strong> <Tag>{resolveRole(readIdentity())}</Tag>
           <p>身份名称保存在本机；服务器认证由 OpenCode 连接配置管理。</p>
         </div>
         <span class="qc-connection-pill" classList={{ "is-disconnected": !props.serverReady }}>
