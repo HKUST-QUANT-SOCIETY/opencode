@@ -227,10 +227,11 @@ export function MemoryQueryView(props: MemoryQueryProps): HTMLElement {
     if (!lastQuery.trim() && !searching) {
       root.append(emptyState("quantcode.memory.empty"))
     } else if (searching) {
-      const pending = document.createElement("p")
-      pending.className = "qc-memory-pending"
-      pending.style.cssText = "margin:0;font-size:11px;color:var(--qc-muted);"
-      pending.textContent = "…"
+      // ponytail: 文案沿用"…"（不加新 i18n key）；视觉复用 qc-connection-pill + pulse-opacity 圆点（同 ssh-login connecting）
+      const pending = document.createElement("span")
+      pending.className = "qc-connection-pill qc-memory-pending"
+      const dot = document.createElement("i")
+      pending.append(dot, document.createTextNode("…"))
       results.append(pending)
     }
     return results

@@ -220,7 +220,7 @@ export function SolutionPanelView(props: SolutionPanelProps): HTMLElement {
     timeline.className = "qc-timeline qc-solution-rounds"
     state.rounds.forEach((round, index) => {
       const row = document.createElement("div")
-      row.className = "qc-event-row"
+      row.className = "qc-event-row qc-solution-round-row"
       const num = document.createElement("span")
       num.className = "qc-event-index"
       num.textContent = String(index + 1).padStart(2, "0")

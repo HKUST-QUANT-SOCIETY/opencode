@@ -2,7 +2,7 @@
  * 因子评估视图（v5 PPT slide20 屏1）：纯 DOM 构建，无 Solid 响应式，
  * 与 metric-cards 相同的 bun test 兼容策略；panels.tsx 中作为 JSX 子节点插入。
  */
-import { QcBigNumber, QcProgress, type MetricTone } from "./metric-cards"
+import { QcBigNumber, QcProgress, formatMetricValue, type MetricTone } from "./metric-cards"
 import type { RunAgentResult } from "./result-contract"
 
 const NODE_NAMES: Record<string, string> = {
@@ -73,7 +73,7 @@ function numericMetrics(run: RunAgentResult) {
     if (typeof raw !== "number" || !Number.isFinite(raw) || !METRIC_LABELS[key]) continue
     if (cards.length < 4 && !cards.some((card) => card.label === METRIC_LABELS[key])) {
       const tone: MetricTone = /drawdown|var_|risk|vol/i.test(key) ? (raw > 0 ? "negative" : "positive") : "ink"
-      cards.push({ label: METRIC_LABELS[key], value: String(raw), tone })
+      cards.push({ label: METRIC_LABELS[key], value: formatMetricValue(key, raw), tone })
     }
     // ponytail: QcProgress 的 breach 色对 IC 方向相反（>参考线变红），等 metric-cards 支持方向语义再翻正
     if (rows.length < 4 && !rows.some((row) => row.label === METRIC_LABELS[key])) {
@@ -84,9 +84,12 @@ function numericMetrics(run: RunAgentResult) {
 }
 
 function emptyNote() {
-  const empty = document.createElement("p")
-  empty.className = "qc-metrics-empty"
-  empty.textContent = "暂无研究运行"
+  const empty = document.createElement("div")
+  empty.className = "qc-empty-state is-compact"
+  const note = document.createElement("p")
+  note.className = "qc-metrics-empty"
+  note.textContent = "暂无研究运行"
+  empty.append(note)
   return empty
 }
 

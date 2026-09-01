@@ -162,52 +162,50 @@ export function CapabilityCatalogView(props: CapabilityCatalogProps): HTMLElemen
   }
 
   const renderList = () => {
+    // ponytail: 列表区可复用容器——搜索重渲只 replaceChildren 这里，搜索框不参与重渲，避免每敲一字失焦
+    listHost.replaceChildren()
     const visible = cards().filter(matches)
     if (cards().length === 0) {
-      root.append(renderEmpty("quantcode.capability.empty"))
+      listHost.append(renderEmpty("quantcode.capability.empty"))
       return
     }
     if (visible.length === 0) {
-      root.append(renderEmpty("quantcode.capability.noMatch"))
+      listHost.append(renderEmpty("quantcode.capability.noMatch"))
       return
     }
     const list = document.createElement("div")
     list.className = "qc-capability-list"
     for (const card of visible) list.append(renderCard(card))
-    root.append(list)
+    listHost.append(list)
   }
 
-  const render = () => {
-    root.replaceChildren()
+  const intro = document.createElement("div")
+  intro.className = "qc-memory-intro"
+  const label = document.createElement("span")
+  label.className = "qc-section-label"
+  label.textContent = "ORG CAPABILITIES"
+  const title = document.createElement("h3")
+  title.textContent = t("quantcode.capability.title")
+  const desc = document.createElement("p")
+  desc.style.cssText = "margin:0;font-size:11px;color:var(--qc-muted);"
+  desc.textContent = t("quantcode.capability.intro")
+  intro.append(label, title, desc)
 
-    const intro = document.createElement("div")
-    intro.className = "qc-memory-intro"
-    const label = document.createElement("span")
-    label.className = "qc-section-label"
-    label.textContent = "ORG CAPABILITIES"
-    const title = document.createElement("h3")
-    title.textContent = t("quantcode.capability.title")
-    const desc = document.createElement("p")
-    desc.style.cssText = "margin:0;font-size:11px;color:var(--qc-muted);"
-    desc.textContent = t("quantcode.capability.intro")
-    intro.append(label, title, desc)
-    root.append(intro)
-
-    // ponytail: 顶部搜索为纯客户端过滤；FTS 在后端，数据量大时由 fetcher 通道承担检索
-    const search = document.createElement("input")
-    search.className = "qc-select-wide qc-capability-search"
-    search.type = "search"
-    search.placeholder = t("quantcode.capability.searchPlaceholder")
-    search.value = query
-    search.autocomplete = "off"
-    search.addEventListener("input", () => {
-      query = search.value.trim().toLowerCase()
-      render()
-    })
-    root.append(search)
-
+  // ponytail: 顶部搜索为纯客户端过滤；FTS 在后端，数据量大时由 fetcher 通道承担检索
+  const search = document.createElement("input")
+  search.className = "qc-select-wide qc-capability-search"
+  search.type = "search"
+  search.placeholder = t("quantcode.capability.searchPlaceholder")
+  search.autocomplete = "off"
+  search.addEventListener("input", () => {
+    query = search.value.trim().toLowerCase()
     renderList()
-  }
+  })
+  const listHost = document.createElement("div")
+  listHost.className = "qc-capability-results"
+
+  root.replaceChildren(intro, search, listHost)
+  renderList()
 
   if (props.fetcher) {
     void props
@@ -215,13 +213,12 @@ export function CapabilityCatalogView(props: CapabilityCatalogProps): HTMLElemen
       .then((result) => {
         if (result === null || fetched !== undefined) return
         fetched = result
-        render()
+        renderList()
       })
       .catch(() => {
         // 通道异常 → 保持 run trace / 空态，不造假数据
       })
   }
 
-  render()
   return root
 }

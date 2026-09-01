@@ -61,10 +61,13 @@ const PARAMS = [
 ] as const
 
 function emptyNote(text: string) {
+  const empty = document.createElement("div")
+  empty.className = "qc-empty-state is-compact"
   const note = document.createElement("p")
   note.className = "qc-metrics-empty"
   note.textContent = text
-  return note
+  empty.append(note)
+  return empty
 }
 
 export function PitValuationView(props: { run: RunAgentResult | null }): HTMLElement {

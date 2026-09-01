@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { resolveRole } from "./roles"
+import { isAdminRole, resolveRole } from "./roles"
 
 describe("QuantCode roles", () => {
   test("risk / 风控 / lead identities map to approver", () => {
@@ -15,5 +15,18 @@ describe("QuantCode roles", () => {
 
   test("empty identity falls back to analyst", () => {
     expect(resolveRole("")).toBe("analyst")
+  })
+
+  test("admin / 管理员 / root identities map to admin (F-09 admin console visibility)", () => {
+    expect(resolveRole("admin-zhang")).toBe("admin")
+    expect(resolveRole("管理员")).toBe("admin")
+    expect(resolveRole("root")).toBe("admin")
+    expect(isAdminRole("admin-zhang")).toBe(true)
+  })
+
+  test("approver and analyst identities are not admin", () => {
+    expect(isAdminRole("risk-wang")).toBe(false)
+    expect(isAdminRole("researcher-chen")).toBe(false)
+    expect(isAdminRole("")).toBe(false)
   })
 })

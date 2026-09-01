@@ -20,26 +20,27 @@ import {
 } from "solid-js"
 import { createStore } from "solid-js/store"
 import { Icon, type IconProps } from "@opencode-ai/ui/icon"
-import { Tag } from "@opencode-ai/ui/tag"
 import { setQuantCodeTraceListener, type QuantCodeTracePayload } from "@opencode-ai/session-ui/message-part"
 import { usePrompt } from "@/context/prompt"
 import { useServer } from "@/context/server"
 import { useServerSDK } from "@/context/server-sdk"
 import { useLanguage } from "@/context/language"
 import { showToast } from "@/utils/toast"
-import { QcBigNumber, QcProgress, type MetricTone } from "./metric-cards"
+import { QcBigNumber, QcProgress, formatMetricValue, type MetricTone } from "./metric-cards"
 import { buildResearchInstruction, buildResumeInstruction, QUANTCODE_GROUPS, type QuantCodeGroup } from "./instructions"
 import { isRunAgentResult, type RunAgentResult, type TraceEvent } from "./result-contract"
 import { submitQuantCodeInstruction, type QuantCodeSubmissionHandler } from "./submission"
-import { resolveRole } from "./roles"
+import { isAdminRole, resolveRole } from "./roles"
 import { FactorFlowView } from "./factor-screen"
-import { NotificationsBell, NotificationsPanel, pendingNotifications } from "./notifications"
+import { NotificationsBell, NotificationsPanel, pendingNotifications, updateNotifications } from "./notifications"
 import { PitValuationView } from "./pit-screen"
 import { SupplierView } from "./settings-supplier"
 import { SshLoginView } from "./ssh-login"
 import { CapabilityCatalogView } from "./capability-catalog"
 import { MemoryQueryView } from "./memory-query"
 import { SolutionPanelView } from "./solution-panel"
+import { AdminConsoleView } from "./admin-console"
+import { GitGraphPanelView } from "./gitgraph-panel"
 import "./panels.css"
 
 const [_trace, setTrace] = createSignal<RunAgentResult | null>(null)
@@ -164,7 +165,18 @@ const SKILLS = [
   { id: "memory-recall", label: "Memory Recall" },
 ] as const
 
-type DetailView = "compose" | "activity" | "gate" | "memory" | "capabilities" | "solution" | "settings" | "factor" | "pit"
+type DetailView =
+  | "compose"
+  | "activity"
+  | "gate"
+  | "memory"
+  | "capabilities"
+  | "solution"
+  | "settings"
+  | "factor"
+  | "pit"
+  | "admin"
+  | "gitgraph"
 type SubmitState = "idle" | "starting" | "submitted" | "error"
 type GateDecision = "approve" | "reject"
 
@@ -268,7 +280,7 @@ function bigNumbersFromOutput(output?: Record<string, unknown>) {
     const label = METRIC_LABELS[key] ?? key
     const lower = key.toLowerCase()
     const tone: MetricTone = /drawdown|var_|risk|vol/i.test(lower) ? (raw > 0 ? "negative" : "positive") : "ink"
-    const value = /ir|sharpe|ic/i.test(lower) ? raw.toFixed(2) : String(Math.round(raw * 1000) / 1000)
+    const value = formatMetricValue(key, raw)
     items.push({ label, value, tone })
     if (items.length >= 4) return items
   }
@@ -339,7 +351,7 @@ function ActivityPanel(props: { onUseTask: (task: string) => void }): JSX.Elemen
               <code>{item().thread_id ?? "pending"}</code>
               <span>{formatTime(item().timestamp)}</span>
             </div>
-            <Show when={riskRows().length >= 2}>
+            <Show when={riskRows().length > 0}>
               <div class="qc-detail-section">
                 <span class="qc-section-label">RISK THRESHOLD</span>
                 <For each={riskRows()}>
@@ -423,7 +435,9 @@ function GatePanel(props: { onResume: (threadId: string, decision: "approve" | "
             </div>
             <div class="qc-detail-section">
               <span class="qc-section-label">RISK METRICS</span>
-              <pre class="qc-code-block">{JSON.stringify(item().risk_metrics ?? {}, null, 2)}</pre>
+              <For each={Object.entries(item().risk_metrics ?? {}).filter(([, raw]) => typeof raw === "number" && Number.isFinite(raw))}>
+                {([key, raw]) => QcProgress({ label: METRIC_LABELS[key] ?? key, value: raw as number })}
+              </For>
             </div>
             <Show when={waiting() && run()?.thread_id && role === "approver"}>
               <div class="qc-gate-actions">
@@ -478,7 +492,7 @@ function SettingsPanel(props: {
       <div class="qc-setting-row">
         <div>
           <span class="qc-section-label">SSH IDENTITY</span>
-          <strong>{readIdentity()}</strong> <Tag>{resolveRole(readIdentity())}</Tag>
+          <strong>{readIdentity()}</strong> <span class="qc-status">{resolveRole(readIdentity())}</span>
           <p>身份名称保存在本机；服务器认证由 OpenCode 连接配置管理。</p>
         </div>
         <span class="qc-connection-pill" classList={{ "is-disconnected": !props.serverReady }}>
@@ -556,6 +570,9 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
   let sharpBrand: HTMLDivElement | undefined
   const [notifOpen, setNotifOpen] = createSignal(false)
   const notifItems = createMemo(() => pendingNotifications(_threadHistory(), _trace()))
+  const updateItems = createMemo(() => updateNotifications(_threadHistory()))
+  /** F-09：Admin 中枢仅 admin 角色可见（roles.ts 启发式；权威源待 G4） */
+  const adminViewable = createMemo(() => isAdminRole(readIdentity()))
 
   /** 通知"去审批"：把目标 run 设为当前 trace 并切到 HumanGate 视图。 */
   const focusGateThread = (threadId: string) => {
@@ -565,6 +582,19 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
     updateQuantCodeTrace(run)
     setState("view", "gate")
   }
+
+  /** F-09：通知 = 待审批 gate + 双类 pop（repo 新提交 / 依赖更新），badge 计数合并 */
+  const allNotifItems = createMemo(() => [...notifItems(), ...updateItems()])
+
+  // 通知面板打开期间监听 Escape 关闭（effect 重跑时自动解除旧监听）
+  createEffect(() => {
+    if (!notifOpen()) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setNotifOpen(false)
+    }
+    window.addEventListener("keydown", onKey)
+    onCleanup(() => window.removeEventListener("keydown", onKey))
+  })
 
   // Trace bridge: the session-ui run_agent renderer pushes results here while
   // the panel is mounted; deregister on teardown so no stale writes land.
@@ -734,6 +764,11 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
     { id: "capabilities", label: "能力目录", icon: "mcp" },
     { id: "solution", label: "方案", icon: "prompt" },
   ]
+  /** F-09：admin 专属视图（Admin 中枢 / GitGraph），仅 admin 角色可见导航项 */
+  const adminNavItems: { id: DetailView; label: string; icon: IconProps["name"] }[] = [
+    { id: "admin", label: "Admin 中枢", icon: "shield" },
+    { id: "gitgraph", label: "GitGraph", icon: "branch" },
+  ]
 
   return (
     <div ref={shell} class="qc-shell" data-quantcode-workspace="true">
@@ -745,17 +780,17 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
           QC
         </button>
         <nav>
-          <Show when={notifItems().length > 0 || notifOpen()} fallback={null}>
+          <Show when={allNotifItems().length > 0 || notifOpen()} fallback={null}>
             {(() => {
               const bell = NotificationsBell({
-                count: notifItems().length,
+                count: allNotifItems().length,
                 onClick: () => setNotifOpen(!notifOpen()),
               })
               bell.classList.toggle("is-active", notifOpen())
               return bell
             })()}
           </Show>
-          <For each={navItems}>
+          <For each={adminViewable() ? [...navItems, ...adminNavItems] : navItems}>
             {(item) => (
               <button
                 type="button"
@@ -776,9 +811,14 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
         </nav>
         <Show when={notifOpen()}>
           {NotificationsPanel({
-            items: notifItems(),
+            items: allNotifItems(),
             onClose: () => setNotifOpen(false),
             onApprove: focusGateThread,
+            onOpenGitgraph: () => {
+              setNotifOpen(false)
+              setState("view", "gitgraph")
+            },
+            t: language.t as (key: string) => string,
           })}
         </Show>
         <div class="qc-rail-footer">
@@ -862,12 +902,6 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
           </section>
 
           <section class="qc-compose-zone" id="qc-research-prompt" aria-label="研究任务">
-            <div class="qc-compose-heading">
-              <span>RESEARCH PROMPT</span>
-              <span>
-                {_group().toUpperCase()} / {serverName().toUpperCase()}
-              </span>
-            </div>
             <div class="qc-compose-grid">
               <div class="qc-compose-left">
                 <div class="qc-composer" classList={{ "has-error": state.submit === "error" }}>
@@ -1002,7 +1036,11 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
                               ? "能力目录"
                               : state.view === "solution"
                                 ? "方案"
-                                : "工作区设置"}
+                                : state.view === "admin"
+                                  ? "Admin 中枢"
+                                  : state.view === "gitgraph"
+                                    ? "GitGraph"
+                                    : "工作区设置"}
                   </h2>
                 </div>
                 <button type="button" aria-label="关闭详情" onClick={() => setState("view", "compose")}>
@@ -1030,6 +1068,21 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
                 </Match>
                 <Match when={state.view === "solution"}>
                   <SolutionPanelView t={language.t as (key: string) => string} run={_trace()} />
+                </Match>
+                <Match when={state.view === "admin" && adminViewable()}>
+                  <AdminConsoleView
+                    t={language.t as (key: string) => string}
+                    run={_trace()}
+                    sendInstruction={(content) => submitInstruction(content, "admin")}
+                    onOpenGitgraph={() => setState("view", "gitgraph")}
+                  />
+                </Match>
+                <Match when={state.view === "gitgraph" && adminViewable()}>
+                  <GitGraphPanelView
+                    t={language.t as (key: string) => string}
+                    run={_trace()}
+                    sendInstruction={(content) => submitInstruction(content, "gitgraph")}
+                  />
                 </Match>
                 <Match when={state.view === "settings"}>
                   <SettingsPanel
