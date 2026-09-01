@@ -1422,3 +1422,11 @@
 .qc-pit-param { display: grid; gap: 5px; padding: 10px 0; border-bottom: 1px solid rgba(18, 18, 18, 0.09); font-size: 11px; font-weight: 600; }
 .qc-pit-param input { width: 100%; margin: 0; accent-color: var(--qc-ink); }
 .qc-pit-live { display: block; margin-top: 10px; font-size: 10px; color: var(--qc-muted); }
+
+/* --- 供应商设置（settings-supplier.tsx） --- */
+.qc-supplier { display: grid; gap: 6px; }
+.qc-supplier-row { display: flex; align-items: baseline; gap: 10px; padding: 6px 0; border-bottom: 1px solid rgba(18, 18, 18, 0.09); font-size: 11px; }
+.qc-supplier-row .qc-supplier-label { width: 56px; color: var(--qc-muted); font-weight: 600; }
+.qc-supplier-row strong { margin-left: auto; }
+.qc-supplier-hint, .qc-supplier-empty { margin: 0; font-size: 10px; color: var(--qc-muted); }
+.qc-supplier-algorithms { margin-top: 10px; display: grid; gap: 5px; }

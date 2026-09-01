@@ -35,6 +35,7 @@ import { resolveRole } from "./roles"
 import { FactorFlowView } from "./factor-screen"
 import { NotificationsBell, NotificationsPanel, pendingNotifications } from "./notifications"
 import { PitValuationView } from "./pit-screen"
+import { SupplierView } from "./settings-supplier"
 import "./panels.css"
 
 const [_trace, setTrace] = createSignal<RunAgentResult | null>(null)
@@ -534,6 +535,7 @@ function SettingsPanel(props: {
           <code>{props.serverTransport}</code>
         </div>
       </div>
+      <SupplierView />
     </div>
   )
 }
