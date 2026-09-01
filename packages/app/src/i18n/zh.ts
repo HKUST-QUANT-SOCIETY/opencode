@@ -921,4 +921,22 @@ export const dict = {
   "quantcode.goal.description": "预填目标模板；run_agent 完成后用 judge_run 评测本次运行",
   "quantcode.goal.template":
     "目标（Goal）：\n<在此描述可验证的完成标准，如：产出一份 IC≥0.03 的因子报告>\n\n要求：完成后让 run_agent 用 judge_run(goal, summarize_run(trace)) 评测本次运行，verdict 与理由请写进最终回复。",
+
+  "quantcode.ssh.host": "主机",
+  "quantcode.ssh.user": "用户名",
+  "quantcode.ssh.privateKey": "私钥",
+  "quantcode.ssh.privateKeyHint": "私钥仅在内存中传给后端，不会保存或回显。",
+  "quantcode.ssh.connect": "连接",
+  "quantcode.ssh.connecting": "正在连接…",
+  "quantcode.ssh.logWaiting": "等待服务器响应…",
+  "quantcode.ssh.connected": "已连接",
+  "quantcode.ssh.fingerprint": "指纹",
+  "quantcode.ssh.groups": "组绑定",
+  "quantcode.ssh.groupSuffix": "组",
+  "quantcode.ssh.disconnect": "断开",
+  "quantcode.ssh.failed": "连接失败",
+  "quantcode.ssh.retry": "重试",
+  "quantcode.ssh.reason.key_rejected": "密钥被拒",
+  "quantcode.ssh.reason.host_unreachable": "主机不可达",
+  "quantcode.ssh.reason.unavailable": "SSH 连接服务尚未就绪",
 } satisfies Partial<Record<Keys, string>>

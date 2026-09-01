@@ -36,6 +36,7 @@ import { FactorFlowView } from "./factor-screen"
 import { NotificationsBell, NotificationsPanel, pendingNotifications } from "./notifications"
 import { PitValuationView } from "./pit-screen"
 import { SupplierView } from "./settings-supplier"
+import { SshLoginView } from "./ssh-login"
 import "./panels.css"
 
 const [_trace, setTrace] = createSignal<RunAgentResult | null>(null)
@@ -493,6 +494,8 @@ function SettingsPanel(props: {
   serverName: string
   serverReady: boolean
   serverTransport: string
+  /** F-05 SSH 登录视图的 i18n（quantcode.ssh.*），来自 useLanguage().t */
+  sshT: (key: string) => string
 }): JSX.Element {
   return (
     <div class="qc-detail-body">
@@ -534,6 +537,11 @@ function SettingsPanel(props: {
           <span>{props.serverName}</span>
           <code>{props.serverTransport}</code>
         </div>
+      </div>
+      <div class="qc-detail-section">
+        <span class="qc-section-label">SSH LOGIN</span>
+        {/* F-05 完整登录流（四态）；ponytail: ssh_status 元工具 W3 才有，视图内默认 stub 返回未连接态 */}
+        <SshLoginView t={props.sshT} />
       </div>
       <SupplierView />
     </div>
@@ -1039,6 +1047,7 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
                     serverName={serverName()}
                     serverReady={serverReady()}
                     serverTransport={serverTransport()}
+                    sshT={language.t as (key: string) => string}
                   />
                 </Match>
               </Switch>

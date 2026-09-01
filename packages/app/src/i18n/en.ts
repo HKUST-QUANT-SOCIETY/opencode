@@ -1031,4 +1031,22 @@ export const dict = {
   "quantcode.goal.description": "Prefill a goal template; run_agent evaluates it with judge_run after finishing",
   "quantcode.goal.template":
     "Goal:\n<Describe verifiable completion criteria here, e.g.: produce a factor report with IC >= 0.03>\n\nRequirements: after finishing, have run_agent evaluate this run with judge_run(goal, summarize_run(trace)), and include the verdict and reasoning in your final reply.",
+
+  "quantcode.ssh.host": "Host",
+  "quantcode.ssh.user": "User",
+  "quantcode.ssh.privateKey": "Private key",
+  "quantcode.ssh.privateKeyHint": "The private key is passed to the backend in memory only — never stored or echoed.",
+  "quantcode.ssh.connect": "Connect",
+  "quantcode.ssh.connecting": "Connecting…",
+  "quantcode.ssh.logWaiting": "Waiting for the server to respond…",
+  "quantcode.ssh.connected": "Connected",
+  "quantcode.ssh.fingerprint": "Fingerprint",
+  "quantcode.ssh.groups": "Group bindings",
+  "quantcode.ssh.groupSuffix": "group",
+  "quantcode.ssh.disconnect": "Disconnect",
+  "quantcode.ssh.failed": "Connection failed",
+  "quantcode.ssh.retry": "Retry",
+  "quantcode.ssh.reason.key_rejected": "Key rejected",
+  "quantcode.ssh.reason.host_unreachable": "Host unreachable",
+  "quantcode.ssh.reason.unavailable": "SSH connection service is not ready yet",
 }
