@@ -605,6 +605,36 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
     }),
   ]
 
+  // QuantCode: /solution 命令 — P-10 方案先行激活指令（agent 调 draft_solution；冻结前代码工具不可用）
+  const solutionCmds = () => [
+    sessionCommand({
+      id: "quantcode.solution",
+      title: language.t("quantcode.cmd.solution.title"),
+      description: language.t("quantcode.cmd.solution.description"),
+      slash: "solution",
+      onSelect: () => {
+        const template = language.t("quantcode.cmd.solution.template")
+        prompt.set([{ type: "text" as const, content: template, start: 0, end: template.length }], template.indexOf("<"))
+        actions.focusInput()
+      },
+    }),
+  ]
+
+  // QuantCode: /deploy 命令 — P-09 黑盒部署（agent 调 deploy_alphaflow，结果走 kind=deploy 审批）
+  const deployCmds = () => [
+    sessionCommand({
+      id: "quantcode.deploy",
+      title: language.t("quantcode.cmd.deploy.title"),
+      description: language.t("quantcode.cmd.deploy.description"),
+      slash: "deploy",
+      onSelect: () => {
+        const template = language.t("quantcode.cmd.deploy.template")
+        prompt.set([{ type: "text" as const, content: template, start: 0, end: template.length }], template.indexOf("<"))
+        actions.focusInput()
+      },
+    }),
+  ]
+
   const permissionsCmds = () => [
     permissionsCommand({
       id: "permissions.autoaccept",
@@ -629,5 +659,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
     ...permissionsCmds(),
     ...composeCmds(),
     ...goalCmds(),
+    ...solutionCmds(),
+    ...deployCmds(),
   ])
 }

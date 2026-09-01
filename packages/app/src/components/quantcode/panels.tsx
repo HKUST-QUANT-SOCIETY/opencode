@@ -37,6 +37,9 @@ import { NotificationsBell, NotificationsPanel, pendingNotifications } from "./n
 import { PitValuationView } from "./pit-screen"
 import { SupplierView } from "./settings-supplier"
 import { SshLoginView } from "./ssh-login"
+import { CapabilityCatalogView } from "./capability-catalog"
+import { MemoryQueryView } from "./memory-query"
+import { SolutionPanelView } from "./solution-panel"
 import "./panels.css"
 
 const [_trace, setTrace] = createSignal<RunAgentResult | null>(null)
@@ -161,7 +164,7 @@ const SKILLS = [
   { id: "memory-recall", label: "Memory Recall" },
 ] as const
 
-type DetailView = "compose" | "activity" | "gate" | "memory" | "settings" | "factor" | "pit"
+type DetailView = "compose" | "activity" | "gate" | "memory" | "capabilities" | "solution" | "settings" | "factor" | "pit"
 type SubmitState = "idle" | "starting" | "submitted" | "error"
 type GateDecision = "approve" | "reject"
 
@@ -402,6 +405,10 @@ function GatePanel(props: { onResume: (threadId: string, decision: "approve" | "
             <span class={`qc-status ${waiting() ? "qc-status-waiting_for_human" : "qc-status-completed"}`}>
               {waiting() ? "等待人工判断" : "审批已记录"}
             </span>
+            {/* v2 收窄：仅四类写操作进此屏，卡片按 kind 显示徽章（U1-A6） */}
+            <Show when={item().kind}>
+              <span class="qc-status qc-gate-kind">{GATE_KIND_LABELS[item().kind!] ?? item().kind}</span>
+            </Show>
             <h3 class="qc-gate-title">{item().message ?? "HumanGate risk review"}</h3>
             <div class="qc-detail-section">
               <span class="qc-section-label">REASONS</span>
@@ -449,43 +456,12 @@ function GatePanel(props: { onResume: (threadId: string, decision: "approve" | "
   )
 }
 
-function MemoryPanel(): JSX.Element {
-  return (
-    <div class="qc-detail-body">
-      <div class="qc-memory-intro">
-        <span class="qc-section-label">RESEARCH MEMORY</span>
-        <h3>让下一次研究从团队已经知道的地方开始。</h3>
-        <p>Memory 目前保持只读。可查看已沉淀的决策、产物索引与结构化输出，写入策略将在服务端契约稳定后开放。</p>
-      </div>
-      <div class="qc-memory-grid">
-        <div>
-          <span>01</span>
-          <strong>研究结论</strong>
-          <p>按因子、模型与策略组织的长期结论。</p>
-        </div>
-        <div>
-          <span>02</span>
-          <strong>决策记录</strong>
-          <p>HumanGate 判断与审阅历史。</p>
-        </div>
-        <div>
-          <span>03</span>
-          <strong>产物索引</strong>
-          <p>报告、指标和回测结果的可追溯入口。</p>
-        </div>
-      </div>
-      <div class="qc-detail-section">
-        <span class="qc-section-label">LOCAL STORE</span>
-        <code class="qc-artifact">.quantcode/memory.db</code>
-      </div>
-      <Show when={_trace()?.output_data}>
-        <div class="qc-detail-section">
-          <span class="qc-section-label">LATEST STRUCTURED OUTPUT</span>
-          <pre class="qc-code-block">{JSON.stringify(_trace()?.output_data, null, 2)}</pre>
-        </div>
-      </Show>
-    </div>
-  )
+/** v2 收窄后进 GatePanel 的四类写操作 kind → 徽章文案（U1-A6；未知 kind 原样显示）。 */
+const GATE_KIND_LABELS: Record<string, string> = {
+  merge: "主线入库",
+  deploy: "生产部署",
+  permission: "跨组权限",
+  budget: "预算超限",
 }
 
 function SettingsPanel(props: {
@@ -540,7 +516,10 @@ function SettingsPanel(props: {
       </div>
       <div class="qc-detail-section">
         <span class="qc-section-label">SSH LOGIN</span>
-        {/* F-05 完整登录流（四态）；ponytail: ssh_status 元工具 W3 才有，视图内默认 stub 返回未连接态 */}
+        {/* F-05 完整登录流（四态）。ponytail: W3 接线结论——lens 前端与 MCP 通道之间没有
+            直调面（SDK v2 仅有 session.promptAsync 等会话面，无 tool.invoke），ssh_status
+            元工具无法从视图同步取数；保留 stub（恒返失败=未连接态，不伪造成功）。
+            升级路径：后端暴露可查询的 ssh_status surface 后，实现 SshConnectFn 注入 connect。 */}
         <SshLoginView t={props.sshT} />
       </div>
       <SupplierView />
@@ -752,6 +731,8 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
     { id: "pit", label: "PIT 估值", icon: "file-tree" },
     { id: "gate", label: "HumanGate", icon: "review" },
     { id: "memory", label: "Memory", icon: "brain" },
+    { id: "capabilities", label: "能力目录", icon: "mcp" },
+    { id: "solution", label: "方案", icon: "prompt" },
   ]
 
   return (
@@ -1017,7 +998,11 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
                           ? "HumanGate"
                           : state.view === "memory"
                             ? "Memory"
-                            : "工作区设置"}
+                            : state.view === "capabilities"
+                              ? "能力目录"
+                              : state.view === "solution"
+                                ? "方案"
+                                : "工作区设置"}
                   </h2>
                 </div>
                 <button type="button" aria-label="关闭详情" onClick={() => setState("view", "compose")}>
@@ -1038,7 +1023,13 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
                   <GatePanel onResume={(threadId, decision) => sendGateDecision(decision)} />
                 </Match>
                 <Match when={state.view === "memory"}>
-                  <MemoryPanel />
+                  <MemoryQueryView t={language.t as (key: string) => string} />
+                </Match>
+                <Match when={state.view === "capabilities"}>
+                  <CapabilityCatalogView t={language.t as (key: string) => string} run={_trace()} />
+                </Match>
+                <Match when={state.view === "solution"}>
+                  <SolutionPanelView t={language.t as (key: string) => string} run={_trace()} />
                 </Match>
                 <Match when={state.view === "settings"}>
                   <SettingsPanel

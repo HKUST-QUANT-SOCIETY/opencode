@@ -25,4 +25,13 @@ describe("QuantCode run_agent instructions", () => {
     expect(prefix).toContain('group: "factor"')
     expect(prefix).toEndWith("=== USER TASK ===\n")
   })
+
+  test("carries the P-07 reuse discipline and P-10 solution-first clause on every run instruction", () => {
+    const instruction = buildResearchInstruction({ task: "demo", group: "factor", skillLabel: "Risk Review" })
+    expect(instruction).toContain("capability catalog")
+    expect(instruction).toContain("ask the human first")
+    expect(instruction).toContain("draft_solution")
+    expect(instruction).toContain("freeze_solution")
+    expect(instruction).toContain("Trivial single-point fixes are exempt")
+  })
 })

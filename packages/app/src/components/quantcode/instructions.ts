@@ -1,11 +1,24 @@
 export const QUANTCODE_GROUPS = ["fundamental", "factor", "model", "risk", "strategy", "options"] as const
 export type QuantCodeGroup = (typeof QUANTCODE_GROUPS)[number]
 
+/**
+ * P-07 复用纪律 + P-10 方案先行（常驻，随每次 run 指令下发）：
+ * 1) 方案制定首选已登记能力（能力目录 / list_capabilities）；
+ * 2) 已有能力覆盖不全 → 先向人征询，不许直接跳自造方案；
+ * 3) 非平凡任务先 draft_solution、冻结（freeze_solution）后才实现；trivial 单点修复可豁免。
+ */
+const REUSE_DISCIPLINE =
+  "Reuse discipline: prefer registered organization capabilities (the capability catalog, list_capabilities) " +
+  "before drafting any solution; do not build from scratch what a registered capability already covers. " +
+  "If registered capabilities do not fully cover the need, ask the human first — do NOT silently invent your own implementation. " +
+  "Solution-first: for any non-trivial task call draft_solution first and only implement after the solution is " +
+  "frozen (freeze_solution) — code tools are phase-locked until then. Trivial single-point fixes are exempt."
+
 export function buildResearchInstruction(input: { task: string; group: string; skillLabel: string }) {
   return (
     "You MUST call the quantcode_run_agent MCP tool NOW. Do NOT chat. Do NOT acknowledge. " +
     `Invoke it with task: ${JSON.stringify(input.task)}, group: ${JSON.stringify(input.group)}. ` +
-    `Use the ${input.skillLabel} skill when applicable.`
+    `Use the ${input.skillLabel} skill when applicable. ${REUSE_DISCIPLINE}`
   )
 }
 
