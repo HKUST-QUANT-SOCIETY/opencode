@@ -1121,6 +1121,12 @@
   font-size: 27px;
 }
 
+.qc-memory-search-submit {
+  white-space: nowrap;
+  flex: none;
+  align-self: stretch;
+}
+
 .qc-memory-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
