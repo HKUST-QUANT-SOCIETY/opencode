@@ -8,7 +8,10 @@ export type MetricTone = "ink" | "positive" | "negative"
 
 /** 指标大数字统一格式化：IC/IR/Sharpe 两位小数，其余三位舍入（panels / factor-screen 同源）。 */
 export function formatMetricValue(key: string, raw: number): string {
-  return /ir|sharpe|ic/i.test(key) ? raw.toFixed(2) : String(Math.round(raw * 1000) / 1000)
+  if (!Number.isFinite(raw)) return String(raw)
+  if (/ir|sharpe|ic/i.test(key)) return raw.toFixed(2)
+  if (raw !== 0 && Math.abs(raw) < 0.0005) return raw.toExponential(2)
+  return raw.toFixed(3).replace(/0+$/, "").replace(/\.$/, "")
 }
 
 export function QcBigNumber(props: { label: string; value: string; tone?: MetricTone }): HTMLElement {

@@ -34,4 +34,19 @@ describe("SupplierView", () => {
     expect(el.querySelector(".qc-supplier-empty")?.textContent).toContain("list_algorithms")
     el.remove()
   })
+
+  test("renders algorithm entries when the directory has data", () => {
+    const el = SupplierView({
+      algorithms: [
+        { id: "rank_top_n", description: "Rank assets by signal" },
+        { id: "legacy_signal" },
+      ],
+    })
+    expect(el.querySelector(".qc-supplier-empty")).toBeNull()
+    expect([...el.querySelectorAll(".qc-supplier-algorithm-list li")].map((item) => item.textContent)).toEqual([
+      "rank_top_n · Rank assets by signal",
+      "legacy_signal",
+    ])
+    el.remove()
+  })
 })

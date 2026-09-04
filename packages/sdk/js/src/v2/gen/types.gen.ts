@@ -2249,6 +2249,13 @@ export type McpResource = {
   client: string
 }
 
+export type ProxyModelsResponse = {
+  ok: boolean
+  reachable: boolean
+  status?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  models?: Array<string>
+}
+
 export type Symbol = {
   name: string
   kind: number
@@ -7675,6 +7682,34 @@ export type ToolIdsResponses = {
 
 export type ToolIdsResponse = ToolIdsResponses[keyof ToolIdsResponses]
 
+export type QuantcodeToolReadOnlyData = {
+  body?: never
+  path?: never
+  query: {
+    directory?: string
+    workspace?: string
+    tool: "list_skills" | "ssh_status" | "list_capabilities" | "list_algorithms"
+    group?: string
+  }
+  url: "/experimental/quantcode/tool"
+}
+
+export type QuantcodeToolReadOnlyErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+}
+
+export type QuantcodeToolReadOnlyError = QuantcodeToolReadOnlyErrors[keyof QuantcodeToolReadOnlyErrors]
+
+export type QuantcodeToolReadOnlyResponses = {
+  /**
+   * QuantCode read-only tool result
+   */
+  200: unknown
+}
+
 export type WorktreeRemoveData = {
   body?: WorktreeRemoveInput
   path?: never
@@ -7883,6 +7918,35 @@ export type ExperimentalResourceListResponses = {
 
 export type ExperimentalResourceListResponse =
   ExperimentalResourceListResponses[keyof ExperimentalResourceListResponses]
+
+export type ExperimentalProxyModelsData = {
+  body?: never
+  path?: never
+  query: {
+    directory?: string
+    workspace?: string
+    url: string
+  }
+  url: "/experimental/proxy/models"
+}
+
+export type ExperimentalProxyModelsErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+}
+
+export type ExperimentalProxyModelsError = ExperimentalProxyModelsErrors[keyof ExperimentalProxyModelsErrors]
+
+export type ExperimentalProxyModelsResponses = {
+  /**
+   * Credential-free provider model list probe
+   */
+  200: ProxyModelsResponse
+}
+
+export type ExperimentalProxyModelsResponse = ExperimentalProxyModelsResponses[keyof ExperimentalProxyModelsResponses]
 
 export type FindTextData = {
   body?: never

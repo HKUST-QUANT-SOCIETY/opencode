@@ -10,6 +10,7 @@ import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js"
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js"
 import {
+  CallToolResultSchema,
   ListRootsRequestSchema,
   type LoggingMessageNotification,
   LoggingMessageNotificationSchema,
@@ -176,6 +177,11 @@ export interface Interface {
     clientName: string,
     resourceUri: string,
   ) => Effect.Effect<Awaited<ReturnType<MCPClient["readResource"]>> | undefined>
+  readonly callTool?: (
+    clientName: string,
+    toolName: string,
+    args?: Record<string, unknown>,
+  ) => Effect.Effect<Awaited<ReturnType<MCPClient["callTool"]>> | undefined>
   readonly startAuth: (
     mcpName: string,
   ) => Effect.Effect<{ authorizationUrl: string; oauthState: string }, NotFoundError>
@@ -780,6 +786,24 @@ const layer = Layer.effect(
       )
     })
 
+    const callTool = Effect.fn("MCP.callTool")(function* (
+      clientName: string,
+      toolName: string,
+      args: Record<string, unknown> = {},
+    ) {
+      return yield* withClient(
+        clientName,
+        (client, timeout) =>
+          client.callTool(
+            { name: toolName, arguments: args },
+            CallToolResultSchema,
+            { timeout, resetTimeoutOnProgress: true, onprogress: () => {} },
+          ),
+        "callTool",
+        { toolName },
+      )
+    })
+
     const getMcpConfig = Effect.fnUntraced(function* (mcpName: string) {
       const s = yield* InstanceState.get(state)
       if (s.config[mcpName]) return s.config[mcpName]
@@ -990,6 +1014,7 @@ const layer = Layer.effect(
       disconnect,
       getPrompt,
       readResource,
+      callTool,
       startAuth,
       authenticate,
       finishAuth,

@@ -181,6 +181,16 @@ describe("experimental HttpApi", () => {
 
         expect(resources.status).toBe(200)
         expect(yield* json(resources)).toEqual({})
+
+        const unavailable = yield* request(`${ExperimentalPaths.quantcodeTool}?tool=ssh_status`, directory)
+        expect(unavailable.status).toBe(200)
+        expect(yield* json(unavailable)).toEqual({ error: "QuantCode MCP is not connected" })
+
+        const unsupported = yield* request(`${ExperimentalPaths.quantcodeTool}?tool=write_blackboard`, directory)
+        expect(unsupported.status).toBe(400)
+
+        const missingSkillGroup = yield* request(`${ExperimentalPaths.quantcodeTool}?tool=list_skills`, directory)
+        expect(missingSkillGroup.status).toBe(400)
       }),
     {
       config: {

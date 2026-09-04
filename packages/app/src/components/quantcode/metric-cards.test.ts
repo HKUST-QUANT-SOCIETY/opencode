@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test"
-import { QcBigNumber, QcChecklistItem, QcProgress } from "./metric-cards"
+import { QcBigNumber, QcChecklistItem, QcProgress, formatMetricValue } from "./metric-cards"
+
+test("formatMetricValue preserves very small non-zero values", () => {
+  expect(formatMetricValue("turnover_monthly", 0.000123)).toBe("1.23e-4")
+  expect(formatMetricValue("turnover_monthly", 0)).toBe("0")
+})
 
 describe("QcBigNumber", () => {
   test("renders label above value with tone class", () => {

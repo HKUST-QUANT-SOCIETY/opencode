@@ -4,6 +4,7 @@
  */
 import { QcBigNumber, QcProgress, formatMetricValue, type MetricTone } from "./metric-cards"
 import type { RunAgentResult } from "./result-contract"
+import { METRIC_LABELS } from "./metrics"
 
 const NODE_NAMES: Record<string, string> = {
   match_gen: "match_main",
@@ -51,17 +52,6 @@ function flowNodes(run: RunAgentResult | null) {
     nodes.push({ name: "HumanGate", done: run.human_decision !== undefined })
   }
   return nodes
-}
-
-const METRIC_LABELS: Record<string, string> = {
-  ic_mean: "IC 均值",
-  ic_std: "IC 标准差",
-  ir: "IR",
-  t_stat: "T 统计",
-  turnover_monthly: "月换手",
-  sharpe: "Sharpe",
-  max_drawdown: "最大回撤",
-  tail_risk_var_99: "尾部风险 VaR99",
 }
 
 /** 数值指标取前 4 个做 QcBigNumber；IC 类以 0.03 绝对值参考线画 QcProgress。 */

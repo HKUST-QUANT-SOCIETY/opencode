@@ -73,6 +73,14 @@ OpenCode channel 仍保留原来的项目/会话首页。首页提交流程如�
 
 ### 已完成（接入 OpenCode 桌面会话）
 
+**Step 0 — 只读目录/状态接线**
+
+OpenCode server 提供受限的 `GET /experimental/quantcode/tool` surface。它只允许
+`list_skills`、`list_algorithms`、`list_capabilities`、`ssh_status` 四个固定只读工具，
+不会把任意 MCP tool invoke 暴露给浏览器。Skill 下拉按认证组动态刷新，算法目录在
+Settings 渲染；查询失败显示未连接，不回退到过期硬编码目录。`ssh_status` 仅报告本地
+配置摘要，真实 SSH 私钥认证和网络连通性探测仍需独立 gateway。
+
 **Step 1 — 根首页和 session-side-panel.tsx 的 QuantCode 工作区**
 
 `packages/app/src/pages/home.tsx` 的 `QuantCodeHome` 和

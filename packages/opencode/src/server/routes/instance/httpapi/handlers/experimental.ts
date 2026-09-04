@@ -22,7 +22,13 @@ import {
   ProxyModelsQuery,
   validateProxyModelsURL,
 } from "../groups/proxy-models"
-import { ConsoleSwitchPayload, SessionListQuery, ToolListQuery, WorktreeApiError } from "../groups/experimental"
+import {
+  ConsoleSwitchPayload,
+  QuantCodeToolQuery,
+  SessionListQuery,
+  ToolListQuery,
+  WorktreeApiError,
+} from "../groups/experimental"
 
 function mapWorktreeError<A, R>(self: Effect.Effect<A, Worktree.Error, R>) {
   return self.pipe(
@@ -113,6 +119,51 @@ export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "exper
 
     const toolIDs = Effect.fn("ExperimentalHttpApi.toolIDs")(function* () {
       return yield* registry.ids()
+    })
+
+    const quantcodeTool = Effect.fn("ExperimentalHttpApi.quantcodeTool")(function* (ctx: {
+      query: typeof QuantCodeToolQuery.Type
+    }) {
+      const args = ctx.query.tool === "list_skills" ? { group: ctx.query.group ?? "" } : {}
+      if (ctx.query.tool === "list_skills" && !ctx.query.group?.trim()) {
+        return yield* Effect.fail(new HttpApiError.BadRequest({}))
+      }
+      const result = yield* (mcp.callTool
+        ? mcp.callTool("quantcode", ctx.query.tool, args)
+        : Effect.succeed<unknown>(undefined))
+      if (!result) return { error: "QuantCode MCP is not connected" }
+      const payload = result as {
+        isError?: boolean
+        content?: unknown
+        structuredContent?: unknown
+      }
+      const textContent = Array.isArray(payload.content)
+        ? payload.content
+            .filter(
+              (item): item is { type: "text"; text: string } =>
+                typeof item === "object" &&
+                item !== null &&
+                "type" in item &&
+                item.type === "text" &&
+                "text" in item &&
+                typeof item.text === "string",
+            )
+            .map((item) => item.text)
+        : []
+      if (payload.isError) {
+        const message = textContent.filter((text) => text.trim()).join("\n\n")
+        return { error: message || "QuantCode read-only tool failed" }
+      }
+      if (payload.structuredContent !== undefined && payload.structuredContent !== null) {
+        return payload.structuredContent
+      }
+      const text = textContent.join("\n").trim()
+      if (!text) return {}
+      try {
+        return JSON.parse(text) as unknown
+      } catch {
+        return { text }
+      }
     })
 
     const worktree = Effect.fn("ExperimentalHttpApi.worktree")(function* () {
@@ -214,6 +265,7 @@ export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "exper
       .handle("consoleSwitch", switchConsole)
       .handle("tool", tool)
       .handle("toolIDs", toolIDs)
+      .handle("quantcodeTool", quantcodeTool)
       .handle("worktree", worktree)
       .handle("worktreeCreate", worktreeCreate)
       .handle("worktreeRemove", worktreeRemove)

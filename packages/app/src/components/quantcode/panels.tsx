@@ -35,12 +35,20 @@ import { FactorFlowView } from "./factor-screen"
 import { NotificationsBell, NotificationsPanel, pendingNotifications, updateNotifications } from "./notifications"
 import { PitValuationView } from "./pit-screen"
 import { SupplierView } from "./settings-supplier"
-import { SshLoginView } from "./ssh-login"
+import { SshLoginView, type SshConnectFn } from "./ssh-login"
 import { CapabilityCatalogView } from "./capability-catalog"
 import { MemoryQueryView } from "./memory-query"
 import { SolutionPanelView } from "./solution-panel"
 import { AdminConsoleView } from "./admin-console"
 import { GitGraphPanelView } from "./gitgraph-panel"
+import {
+  listQuantCodeAlgorithms,
+  listQuantCodeSkills,
+  createSshStatusConnect,
+  type QuantCodeAlgorithm,
+  type QuantCodeSkill,
+} from "./api"
+import { METRIC_LABELS } from "./metrics"
 import "./panels.css"
 
 const [_trace, setTrace] = createSignal<RunAgentResult | null>(null)
@@ -158,13 +166,6 @@ export function quantCodeGroup() {
   return _group() as QuantCodeGroup
 }
 
-const SKILLS = [
-  { id: "auto-factor-evaluation", label: "Auto Factor Evaluation" },
-  { id: "cross-section-research", label: "Cross-section Research" },
-  { id: "risk-review", label: "Risk Review" },
-  { id: "memory-recall", label: "Memory Recall" },
-] as const
-
 type DetailView =
   | "compose"
   | "activity"
@@ -260,16 +261,6 @@ function eventIcon(type: string): IconProps["name"] {
 // ---------------------------------------------------------------------------
 // 指标摘要：从 output_data 与 risk_metrics 中防御式提取数值指标
 // ---------------------------------------------------------------------------
-
-const METRIC_LABELS: Record<string, string> = {
-  ic_mean: "IC 均值",
-  ic: "IC",
-  ir: "IR",
-  sharpe: "Sharpe",
-  annualized_return: "年化收益",
-  max_drawdown: "最大回撤",
-  tail_risk_var_99: "尾部风险 VaR99",
-}
 
 /** output_data 里的数值键 → 卡片数据（最多 4 个），数值型才渲染。 */
 function bigNumbersFromOutput(output?: Record<string, unknown>) {
@@ -478,14 +469,22 @@ const GATE_KIND_LABELS: Record<string, string> = {
   budget: "预算超限",
 }
 
+function skillLabel(skill: QuantCodeSkill) {
+  return skill.name?.trim() || skill.id
+}
+
 function SettingsPanel(props: {
   skill: string
   onSkillChange: (skill: string) => void
+  skills: QuantCodeSkill[]
+  skillsStatus: "loading" | "ready" | "error"
+  algorithms: QuantCodeAlgorithm[]
   serverName: string
   serverReady: boolean
   serverTransport: string
   /** F-05 SSH 登录视图的 i18n（quantcode.ssh.*），来自 useLanguage().t */
   sshT: (key: string) => string
+  sshConnect: SshConnectFn
 }): JSX.Element {
   return (
     <div class="qc-detail-body">
@@ -519,7 +518,13 @@ function SettingsPanel(props: {
         value={props.skill}
         onChange={(event) => props.onSkillChange(event.currentTarget.value)}
       >
-        <For each={SKILLS}>{(skill) => <option value={skill.id}>{skill.label}</option>}</For>
+        <Show when={props.skillsStatus === "loading"}>
+          <option value="">正在加载 Skill 目录…</option>
+        </Show>
+        <Show when={props.skillsStatus === "error"}>
+          <option value="">Skill 目录未连接</option>
+        </Show>
+        <For each={props.skills}>{(skill) => <option value={skill.id}>{skillLabel(skill)}</option>}</For>
       </select>
       <div class="qc-detail-section">
         <span class="qc-section-label">EXECUTION TARGET</span>
@@ -530,13 +535,9 @@ function SettingsPanel(props: {
       </div>
       <div class="qc-detail-section">
         <span class="qc-section-label">SSH LOGIN</span>
-        {/* F-05 完整登录流（四态）。ponytail: W3 接线结论——lens 前端与 MCP 通道之间没有
-            直调面（SDK v2 仅有 session.promptAsync 等会话面，无 tool.invoke），ssh_status
-            元工具无法从视图同步取数；保留 stub（恒返失败=未连接态，不伪造成功）。
-            升级路径：后端暴露可查询的 ssh_status surface 后，实现 SshConnectFn 注入 connect。 */}
-        <SshLoginView t={props.sshT} />
+        <SshLoginView t={props.sshT} connect={props.sshConnect} />
       </div>
-      <SupplierView />
+      <SupplierView algorithms={props.algorithms} />
     </div>
   )
 }
@@ -558,7 +559,10 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
   const [state, setState] = createStore({
     view: "compose" as DetailView,
     task: "",
-    skill: SKILLS[0].id as string,
+    skill: "",
+    skills: [] as QuantCodeSkill[],
+    skillsStatus: "loading" as "loading" | "ready" | "error",
+    algorithms: [] as QuantCodeAlgorithm[],
     submit: "idle" as SubmitState,
     error: "",
   })
@@ -601,11 +605,41 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
   onMount(() => setQuantCodeTraceListener(handleQuantCodeTracePayload))
   onCleanup(() => setQuantCodeTraceListener(null))
 
-  const selectedSkill = createMemo(() => SKILLS.find((skill) => skill.id === state.skill) ?? SKILLS[0])
+  let skillsRequest = 0
+  createEffect(() => {
+    const group = _group()
+    const request = ++skillsRequest
+    setState({ skillsStatus: "loading", skills: [], skill: "" })
+    void listQuantCodeSkills(serverSDK().client, group).then(
+      (skills) => {
+        if (request !== skillsRequest) return
+        setState({ skills, skillsStatus: skills.length ? "ready" : "error", skill: skills[0]?.id ?? "" })
+      },
+      () => {
+        if (request !== skillsRequest) return
+        setState({ skills: [], skillsStatus: "error", skill: "" })
+      },
+    )
+  })
+
+  onMount(() => {
+    void listQuantCodeAlgorithms(serverSDK().client).then(
+      (algorithms) => setState("algorithms", algorithms),
+      () => setState("algorithms", []),
+    )
+  })
+
+  const selectedSkill = createMemo(() => state.skills.find((skill) => skill.id === state.skill))
+  const selectedSkillLabel = createMemo(() => {
+    const skill = selectedSkill()
+    if (skill) return skillLabel(skill)
+    return state.skillsStatus === "loading" ? "正在加载 Skill 目录…" : "Skill 目录未连接"
+  })
   const gateWaiting = createMemo(() => _trace()?.status === "waiting_for_human")
   const serverName = createMemo(() => server.name || "当前服务器")
   const serverReady = createMemo(() => server.ready())
   const serverTransport = createMemo(() => (server.isLocal() ? "本地 sidecar" : server.key))
+  const sshConnect = createMemo(() => createSshStatusConnect(serverSDK().client))
   const recent = createMemo(() => {
     const history = _threadHistory().slice(0, 3)
     if (history.length) {
@@ -650,7 +684,7 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
     return buildResearchInstruction({
       task: state.task.trim(),
       group: _group(),
-      skillLabel: selectedSkill().label,
+      skillLabel: selectedSkillLabel(),
     })
   }
 
@@ -693,7 +727,7 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
   }
 
   const submitResearch = () => {
-    if (!state.task.trim() || state.submit === "starting") return
+    if (!state.task.trim() || !state.skill || state.submit === "starting") return
     submitInstruction(instruction())
   }
 
@@ -734,20 +768,29 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
     if (!shell || !stage || !fieldCanvas || !focusLens || !sharpBrand) return
     const elements = { shell, stage, fieldCanvas, focusLens, sharpBrand }
     const field = { disposed: false, dispose: () => {} }
-    void import("./lens-field").then(async (module) => {
-      const dispose = await module.createQuantCodeLensField({
-        canvas: elements.fieldCanvas,
-        stage: elements.stage,
-        shell: elements.shell,
-        lens: elements.focusLens,
-        sharpBrand: elements.sharpBrand,
+    void import("./lens-field")
+      .then(async (module) => {
+        const dispose = await module.createQuantCodeLensField({
+          canvas: elements.fieldCanvas,
+          stage: elements.stage,
+          shell: elements.shell,
+          lens: elements.focusLens,
+          sharpBrand: elements.sharpBrand,
+        })
+        if (!field.disposed) {
+          field.dispose = dispose
+          return
+        }
+        dispose()
       })
-      if (!field.disposed) {
-        field.dispose = dispose
-        return
-      }
-      dispose()
-    })
+      .catch((error: unknown) => {
+        if (field.disposed) return
+        console.error("[quantcode] lens field failed to load", error)
+        const note = document.createElement("p")
+        note.className = "qc-lens-field-error"
+        note.textContent = "视觉效果暂不可用，研究工作区仍可继续使用。"
+        stage?.append(note)
+      })
     onCleanup(() => {
       field.disposed = true
       field.dispose()
@@ -889,7 +932,7 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
               <button type="button" class="qc-lens-meta-row" onClick={() => setState("view", "settings")}>
                 <span>组:</span>
                 <strong>{_group()}</strong>
-                <small>· {selectedSkill().label}</small>
+                <small>· {selectedSkillLabel()}</small>
                 <Icon name="chevron-down" size="small" />
               </button>
               <button type="button" class="qc-lens-meta-row" onClick={() => setState("view", "settings")}>
@@ -923,15 +966,25 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
                     <label class="qc-skill-select">
                       <Icon name="brain" size="small" />
                       <span class="sr-only">选择 Skill</span>
-                      <select value={state.skill} onChange={(event) => setState("skill", event.currentTarget.value)}>
-                        <For each={SKILLS}>{(skill) => <option value={skill.id}>{skill.label}</option>}</For>
+                      <select
+                        value={state.skill}
+                        disabled={state.skillsStatus !== "ready"}
+                        onChange={(event) => setState("skill", event.currentTarget.value)}
+                      >
+                        <Show when={state.skillsStatus === "loading"}>
+                          <option value="">正在加载 Skill 目录…</option>
+                        </Show>
+                        <Show when={state.skillsStatus === "error"}>
+                          <option value="">Skill 目录未连接</option>
+                        </Show>
+                        <For each={state.skills}>{(skill) => <option value={skill.id}>{skillLabel(skill)}</option>}</For>
                       </select>
                     </label>
                     <div class="qc-submit-cluster">
                       <span>⌘ ENTER</span>
                       <button
                         type="button"
-                        disabled={!state.task.trim() || state.submit === "starting"}
+                        disabled={!state.task.trim() || !state.skill || state.submit === "starting"}
                         onClick={submitResearch}
                       >
                         <Show
@@ -1088,10 +1141,14 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
                   <SettingsPanel
                     skill={state.skill}
                     onSkillChange={(skill) => setState("skill", skill)}
+                    skills={state.skills}
+                    skillsStatus={state.skillsStatus}
+                    algorithms={state.algorithms}
                     serverName={serverName()}
                     serverReady={serverReady()}
                     serverTransport={serverTransport()}
                     sshT={language.t as (key: string) => string}
+                    sshConnect={sshConnect()}
                   />
                 </Match>
               </Switch>

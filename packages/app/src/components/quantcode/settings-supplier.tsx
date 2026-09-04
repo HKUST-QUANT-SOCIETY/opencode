@@ -8,7 +8,7 @@ export type SupplierProps = {
   provider?: string
   model?: string
   baseUrl?: string
-  algorithms?: string[]
+  algorithms?: (string | { id: string; description?: string })[]
 }
 
 const ROWS: { key: keyof Omit<SupplierProps, "algorithms">; label: string; env: string; fallback: string }[] = [
@@ -49,6 +49,17 @@ export function SupplierView(props: SupplierProps): HTMLElement {
     empty.className = "qc-supplier-empty"
     empty.textContent = "算法目录将随 list_algorithms 联动"
     section.append(empty)
+  } else {
+    const list = document.createElement("ul")
+    list.className = "qc-supplier-algorithm-list"
+    for (const algorithm of algorithms) {
+      const item = document.createElement("li")
+      const id = typeof algorithm === "string" ? algorithm : algorithm.id
+      const description = typeof algorithm === "string" ? "" : algorithm.description
+      item.textContent = description ? `${id} · ${description}` : id
+      list.append(item)
+    }
+    section.append(list)
   }
   root.append(section)
   return root

@@ -40,6 +40,8 @@ import type {
   ExperimentalControlPlaneMoveSessionResponses,
   ExperimentalProjectCopyGenerateNameErrors,
   ExperimentalProjectCopyGenerateNameResponses,
+  ExperimentalProxyModelsErrors,
+  ExperimentalProxyModelsResponses,
   ExperimentalResourceListErrors,
   ExperimentalResourceListResponses,
   ExperimentalSessionBackgroundErrors,
@@ -167,6 +169,8 @@ import type {
   PtyShellsResponses,
   PtyUpdateErrors,
   PtyUpdateResponses,
+  QuantcodeToolReadOnlyErrors,
+  QuantcodeToolReadOnlyResponses,
   QuestionAnswer,
   QuestionListErrors,
   QuestionListResponses,
@@ -922,6 +926,44 @@ export class Resource extends HeyApiClient {
   }
 }
 
+export class Proxy extends HeyApiClient {
+  /**
+   * Probe provider model list
+   *
+   * Server-side probe of an https model-list URL without credentials. Cookies, API keys and browser headers are never forwarded. Any HTTP response marks the endpoint reachable; model IDs are only returned for 2xx JSON responses.
+   */
+  public models<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      url: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "url" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      ExperimentalProxyModelsResponses,
+      ExperimentalProxyModelsErrors,
+      ThrowOnError
+    >({
+      url: "/experimental/proxy/models",
+      ...options,
+      ...params,
+    })
+  }
+}
+
 export class ProjectCopy extends HeyApiClient {
   /**
    * Generate project copy name
@@ -1266,6 +1308,11 @@ export class Experimental extends HeyApiClient {
     return (this._resource ??= new Resource({ client: this.client }))
   }
 
+  private _proxy?: Proxy
+  get proxy(): Proxy {
+    return (this._proxy ??= new Proxy({ client: this.client }))
+  }
+
   private _projectCopy?: ProjectCopy
   get projectCopy(): ProjectCopy {
     return (this._projectCopy ??= new ProjectCopy({ client: this.client }))
@@ -1576,6 +1623,53 @@ export class Tool extends HeyApiClient {
       ...options,
       ...params,
     })
+  }
+}
+
+export class Tool2 extends HeyApiClient {
+  /**
+   * Read a restricted QuantCode catalog or connection status
+   *
+   * Invoke one of the fixed read-only QuantCode tools. Arbitrary MCP tool names and arguments are never accepted.
+   */
+  public readOnly<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      tool: "list_skills" | "ssh_status" | "list_capabilities" | "list_algorithms"
+      group?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "tool" },
+            { in: "query", key: "group" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      QuantcodeToolReadOnlyResponses,
+      QuantcodeToolReadOnlyErrors,
+      ThrowOnError
+    >({
+      url: "/experimental/quantcode/tool",
+      ...options,
+      ...params,
+    })
+  }
+}
+
+export class Quantcode extends HeyApiClient {
+  private _tool?: Tool2
+  get tool(): Tool2 {
+    return (this._tool ??= new Tool2({ client: this.client }))
   }
 }
 
@@ -7115,6 +7209,11 @@ export class OpencodeClient extends HeyApiClient {
   private _tool?: Tool
   get tool(): Tool {
     return (this._tool ??= new Tool({ client: this.client }))
+  }
+
+  private _quantcode?: Quantcode
+  get quantcode(): Quantcode {
+    return (this._quantcode ??= new Quantcode({ client: this.client }))
   }
 
   private _worktree?: Worktree

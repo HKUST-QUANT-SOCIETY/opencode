@@ -25,8 +25,8 @@ export type SshConnectResult =
 export type SshConnectFn = (input: SshConnectInput) => Promise<SshConnectResult>
 
 /**
- * ponytail: 后端 ssh_status 元工具未就绪（W3 由 AG-G 接真）——本波数据层用占位
- * stub，连接一律返回失败（未连接态），不伪造成功；接入时注入真实 connect 即可。
+ * Isolated consumers keep a deterministic unavailable fallback. The production
+ * QuantCode panel injects the server-backed implementation from api.ts.
  */
 export const stubSshConnect: SshConnectFn = async ({ log }) => {
   log("waiting for ssh_status (W3) …")

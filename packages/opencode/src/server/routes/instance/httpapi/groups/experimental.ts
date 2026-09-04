@@ -61,6 +61,18 @@ export const ToolListQuery = Schema.Struct({
   model: ModelV2.ID,
 })
 
+const QuantCodeToolName = Schema.Union([
+  Schema.Literal("list_skills"),
+  Schema.Literal("ssh_status"),
+  Schema.Literal("list_capabilities"),
+  Schema.Literal("list_algorithms"),
+])
+export const QuantCodeToolQuery = Schema.Struct({
+  ...WorkspaceRoutingQueryFields,
+  tool: QuantCodeToolName,
+  group: Schema.optional(Schema.String),
+})
+
 const WorktreeList = Schema.Array(Schema.String)
 const WorktreeErrorName = Schema.Union([
   Schema.Literal("WorktreeNotGitError"),
@@ -95,6 +107,7 @@ export const ExperimentalPaths = {
   consoleSwitch: "/experimental/console/switch",
   tool: "/experimental/tool",
   toolIDs: "/experimental/tool/ids",
+  quantcodeTool: "/experimental/quantcode/tool",
   worktree: "/experimental/worktree",
   worktreeReset: "/experimental/worktree/reset",
   session: "/experimental/session",
@@ -173,6 +186,18 @@ export const ExperimentalApi = HttpApi.make("experimental")
             summary: "List tool IDs",
             description:
               "Get a list of all available tool IDs, including both built-in tools and dynamically registered tools.",
+          }),
+        ),
+        HttpApiEndpoint.get("quantcodeTool", ExperimentalPaths.quantcodeTool, {
+          query: QuantCodeToolQuery,
+          success: described(Schema.Unknown, "QuantCode read-only tool result"),
+          error: HttpApiError.BadRequest,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "quantcode.tool.readOnly",
+            summary: "Read a restricted QuantCode catalog or connection status",
+            description:
+              "Invoke one of the fixed read-only QuantCode tools. Arbitrary MCP tool names and arguments are never accepted.",
           }),
         ),
         HttpApiEndpoint.get("worktree", ExperimentalPaths.worktree, {
