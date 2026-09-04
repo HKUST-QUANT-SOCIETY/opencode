@@ -60,7 +60,7 @@ describe("FactorFlowView", () => {
 
   test("duplicate tools dedupe in order and names map to design-draft nodes", () => {
     expect(flowNodeName("cross_match_v2")).toBe("match_main")
-    expect(flowNodeName("risk_gate_check")).toBe("HumanGate")
+    expect(flowNodeName("risk_gate_check")).toBe("risk_gate_check")
     expect(flowNodeName("custom_tool")).toBe("custom_tool")
     const run = runWith({
       execution_trace: [
@@ -79,13 +79,22 @@ describe("FactorFlowView", () => {
     el.remove()
   })
 
-  test("all tools done plus gate appends HumanGate; pending tools with gate do not crash", () => {
+  test("only merge/permission gates append HumanGate; risk verdicts stay domain output", () => {
     const gateRun = toolRun()
-    gateRun.gate = { kind: "risk", reasons: ["ic_below_threshold"], risk_metrics: { max_drawdown: 0.2 } }
+    gateRun.gate = { kind: "merge", reasons: ["merge_requires_approval"] }
     const gateEl = FactorFlowView({ run: gateRun })
     const names = [...gateEl.querySelectorAll(".qc-factor-node strong")].map((n) => n.textContent)
     expect(names).toEqual(["match_main", "gen_schema", "autoeval", "HumanGate"])
     gateEl.remove()
+    const riskRun = toolRun()
+    riskRun.gate = { kind: "risk", reasons: ["ic_below_threshold"] }
+    const riskEl = FactorFlowView({ run: riskRun })
+    expect([...riskEl.querySelectorAll(".qc-factor-node strong")].map((n) => n.textContent)).toEqual([
+      "match_main",
+      "gen_schema",
+      "autoeval",
+    ])
+    riskEl.remove()
     const pendingRun = runWith({
       status: "waiting_for_human",
       gate: { message: "请确认风险" },

@@ -13,8 +13,9 @@ const NODE_NAMES: Record<string, string> = {
   schema: "gen_schema",
   autoeval: "autoeval",
   eval: "autoeval",
-  gate: "HumanGate",
 }
+
+const ACTIONABLE_GATE_KINDS = new Set(["merge", "permission"])
 
 function nodeLabel(tool: string) {
   const key = tool.toLowerCase()
@@ -47,7 +48,11 @@ function flowNodes(run: RunAgentResult | null) {
     }
   }
   const nodes = names.map((name) => ({ name, done: done.has(name) }))
-  const hasGate = !!run.gate || trace.some((event) => event.type === "human_gate")
+  const hasGate = ACTIONABLE_GATE_KINDS.has(run.gate?.kind ?? "") || trace.some((event) => {
+    if (event.type !== "human_gate") return false
+    const kind = event.data?.kind ?? (event.data?.gate as Record<string, unknown> | undefined)?.kind
+    return typeof kind === "string" && ACTIONABLE_GATE_KINDS.has(kind)
+  })
   if (nodes.length > 0 && nodes.every((node) => node.done) && hasGate && !nodes.some((node) => node.name === "HumanGate")) {
     nodes.push({ name: "HumanGate", done: run.human_decision !== undefined })
   }

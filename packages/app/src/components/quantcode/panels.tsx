@@ -212,6 +212,9 @@ function statusLabel(status: string) {
   if (status === "waiting_for_human") return "待审批"
   if (status === "error") return "异常"
   if (status === "rejected") return "已拒绝"
+  if (status === "stopped_budget") return "预算停止"
+  if (status === "stopped_loop") return "循环停止"
+  if (status === "failed") return "失败"
   return "运行中"
 }
 
@@ -227,6 +230,8 @@ function eventTitle(type: string) {
     human_gate: "HumanGate",
     output_data: "结构化结果",
     artifact: "研究产物",
+    checkpoint_snapshot: "上下文快照",
+    budget_warning: "预算告警",
     agent_end: "研究完成",
     error: "执行异常",
   }
@@ -405,8 +410,8 @@ function GatePanel(props: {
         fallback={
           <div class="qc-empty-state">
             <span class="qc-empty-index">OK</span>
-            <h3>当前没有待处理的风险门</h3>
-            <p>当研究触发仓位、回撤或尾部风险阈值时，审批请求会固定在这里。</p>
+            <h3>当前没有待处理的 Gate</h3>
+            <p>共享写入或跨组授权需要处理时，审批请求会固定在这里；风险和评估结果不会生成 Gate。</p>
           </div>
         }
       >
@@ -769,22 +774,29 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
    * promptAsync 发结构化短指令（立即返回，不阻塞整轮 agent 回合），由 Agent 调
    * run_agent(resume) 工具恢复执行。day5 P0-4 的实现，接到 lens 侧 GatePanel 按钮。
    */
-  const sendGateDecision = (decision: GateDecision) => {
+  const sendGateDecision = (threadId: string, decision: GateDecision) => {
     const sessionId = _sessionId()
-    if (!sessionId || state.submit === "starting") return
+    if (!sessionId || !threadId || state.submit === "starting") return
     setState({ submit: "starting", error: "" })
     try {
-      void serverSDK().client.session.promptAsync({
-        sessionID: sessionId,
-        parts: [
-          {
-            type: "text",
-            text: buildResumeInstruction(_trace()?.thread_id ?? "", decision),
-          },
-        ],
-      })
-      showToast({ title: language.t("quantcode.gate.resumeSent"), variant: "success" })
-      setState({ view: "activity", submit: "submitted" })
+      void serverSDK().client.session
+        .promptAsync({
+          sessionID: sessionId,
+          parts: [
+            {
+              type: "text",
+              text: buildResumeInstruction(threadId, decision),
+            },
+          ],
+        })
+        .then(() => {
+          showToast({ title: language.t("quantcode.gate.resumeSent"), variant: "success" })
+          setState({ view: "activity", submit: "submitted" })
+        })
+        .catch(() => {
+          setState({ submit: "error", error: language.t("quantcode.gate.resumeFailed") })
+          showToast({ title: language.t("quantcode.gate.resumeFailed"), variant: "error" })
+        })
     } catch {
       setState({ submit: "error", error: language.t("quantcode.gate.resumeFailed") })
       showToast({ title: language.t("quantcode.gate.resumeFailed"), variant: "error" })
@@ -1146,7 +1158,7 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
                   <PitValuationView run={_trace()} />
                 </Match>
                 <Match when={state.view === "gate"}>
-                  <GatePanel role={state.sessionRole} onResume={(threadId, decision) => sendGateDecision(decision)} />
+                  <GatePanel role={state.sessionRole} onResume={sendGateDecision} />
                 </Match>
                 <Match when={state.view === "memory"}>
                   <MemoryQueryView

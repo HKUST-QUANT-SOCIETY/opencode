@@ -7,7 +7,7 @@ function waiting(threadId: string, timestamp = 1725148800): RunAgentResult {
     status: "waiting_for_human",
     thread_id: threadId,
     timestamp,
-    gate: { kind: "risk", reasons: ["max_drawdown_breach"] },
+    gate: { kind: "merge", reasons: ["merge_requires_approval"] },
     execution_trace: [{ type: "agent_start", seq: 0, data: { task: `研究任务 ${threadId.slice(0, 8)}` } }],
   }
 }
@@ -37,6 +37,12 @@ describe("pendingNotifications", () => {
     expect(items[0]!.status).toBe("待审批")
     expect(items[0]!.time).not.toBe("")
     expect(typeof items[0]!.time).toBe("string")
+  })
+
+  test("risk verdict waiting state is not presented as an approval notification", () => {
+    const risk = waiting("risk-only")
+    risk.gate = { kind: "risk", reasons: ["max_drawdown_breach"] }
+    expect(pendingNotifications([risk], null)).toEqual([])
   })
 
   test("NotificationsPanel lists items with 去审批 action, empty state when cleared", () => {

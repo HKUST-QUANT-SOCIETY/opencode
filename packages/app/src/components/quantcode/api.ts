@@ -126,6 +126,9 @@ export async function getQuantCodeSessionContext(client: OpencodeClient) {
   const result = (await readQuantCodeTool(client, "session_context")) as QuantCodeSessionContext | undefined
   if (result?.error) throw new Error(result.error)
   if (!result?.group) throw new Error("QuantCode session context has no bound group")
+  if (result.role !== undefined && !["analyst", "approver", "admin"].includes(result.role)) {
+    throw new Error("QuantCode session context has an invalid role")
+  }
   return result
 }
 

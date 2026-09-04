@@ -22,6 +22,12 @@ export type QcNotification = {
   detail?: string
 }
 
+const ACTIONABLE_GATE_KINDS = new Set(["merge", "permission"])
+
+function isActionableGate(run: RunAgentResult) {
+  return ACTIONABLE_GATE_KINDS.has(run.gate?.kind ?? "")
+}
+
 const BELL_PATH =
   '<path d="M10 3.1a4.9 4.9 0 0 0-4.9 4.9v2.9L3.5 13.9h13l-1.6-3V8A4.9 4.9 0 0 0 10 3.1Z" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linejoin="round"/>' +
   '<path d="M8.3 16.2a1.8 1.8 0 0 0 3.4 0" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linecap="round"/>'
@@ -46,8 +52,10 @@ function relativeTime(timestamp?: number) {
 /** 未读集合 = 历史中 waiting_for_human（排除当前 trace 线程）+ 当前 trace 的 gate 等待。 */
 export function pendingNotifications(history: RunAgentResult[], trace: RunAgentResult | null): QcNotification[] {
   const current = trace?.thread_id
-  const pending = history.filter((run) => run.status === "waiting_for_human" && run.thread_id && run.thread_id !== current)
-  if (trace?.status === "waiting_for_human" && trace.thread_id) pending.push(trace)
+  const pending = history.filter(
+    (run) => run.status === "waiting_for_human" && isActionableGate(run) && run.thread_id && run.thread_id !== current,
+  )
+  if (trace?.status === "waiting_for_human" && isActionableGate(trace) && trace.thread_id) pending.push(trace)
   return pending.map((run) => ({
     kind: "gate" as const,
     thread_id: run.thread_id!,

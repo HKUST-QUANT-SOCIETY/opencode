@@ -52,6 +52,10 @@ describe("QuantCode read-only API adapters", () => {
     await expect(getQuantCodeSessionContext(clientFor({ role: "analyst" }))).rejects.toThrow("no bound group")
   })
 
+  test("does not accept an unrecognized server role", async () => {
+    await expect(getQuantCodeSessionContext(clientFor({ group: "factor", role: "owner" }))).rejects.toThrow("invalid role")
+  })
+
   test("uses the list capabilities response without fabricating cards", async () => {
     const cards = await listQuantCodeCapabilities(clientFor({ capabilities: [{ id: "contract", name: "Contract" }] }))
     expect(cards).toEqual([{ id: "contract", name: "Contract" }])

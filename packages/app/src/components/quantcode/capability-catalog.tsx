@@ -33,7 +33,7 @@ export type CapabilityFetcher = () => Promise<CapabilityCard[] | null>
 export type CapabilityCatalogProps = {
   /** i18n：panels 传 language.t（key 见 quantcode.capability.*） */
   t: (key: string) => string
-  /** 备用数据通道；返回 null 表示通道无数据（回落到 run trace） */
+  /** 服务端目录通道；返回 null 表示通道不可用，不回落到可能过期的 trace */
   fetcher?: CapabilityFetcher
   /** 当前 run（读取 list_capabilities 的 tool_result 事件） */
   run?: { execution_trace?: TraceEvent[] } | null
@@ -75,9 +75,10 @@ export function CapabilityCatalogView(props: CapabilityCatalogProps): HTMLElemen
   root.style.cssText = "display:grid;gap:12px;align-content:start;"
 
   let fetched: CapabilityCard[] | undefined
+  let fetchState: "idle" | "loading" | "ready" | "unavailable" = props.fetcher ? "loading" : "idle"
   let query = ""
 
-  const cards = (): CapabilityCard[] => fetched ?? capabilitiesFromTrace(props.run)
+  const cards = (): CapabilityCard[] => (props.fetcher ? fetched ?? [] : capabilitiesFromTrace(props.run))
 
   const matches = (card: CapabilityCard) => {
     if (!query) return true
@@ -184,6 +185,14 @@ export function CapabilityCatalogView(props: CapabilityCatalogProps): HTMLElemen
     // ponytail: 列表区可复用容器——搜索重渲只 replaceChildren 这里，搜索框不参与重渲，避免每敲一字失焦
     listHost.replaceChildren()
     const visible = cards().filter(matches)
+    if (fetchState === "loading") {
+      listHost.append(renderEmpty("quantcode.capability.loading"))
+      return
+    }
+    if (fetchState === "unavailable") {
+      listHost.append(renderEmpty("quantcode.capability.unavailable"))
+      return
+    }
     if (cards().length === 0) {
       listHost.append(renderEmpty("quantcode.capability.empty"))
       return
@@ -230,12 +239,19 @@ export function CapabilityCatalogView(props: CapabilityCatalogProps): HTMLElemen
     void props
       .fetcher()
       .then((result) => {
-        if (result === null || fetched !== undefined) return
+        if (fetched !== undefined) return
+        if (result === null) {
+          fetchState = "unavailable"
+          renderList()
+          return
+        }
         fetched = result
+        fetchState = "ready"
         renderList()
       })
       .catch(() => {
-        // 通道异常 → 保持 run trace / 空态，不造假数据
+        fetchState = "unavailable"
+        renderList()
       })
   }
 

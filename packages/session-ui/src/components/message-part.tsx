@@ -2496,9 +2496,12 @@ ToolRegistry.register({
 // HumanGate 卡片（reasons + gate_id）。session-ui 没有 server SDK context，
 // 审批按钮留在 app 侧 QuantCode 面板，这里只提示用户去那里操作（诚实降级）。
 type QuantCodeGateInfo = {
+  kind?: string
   gate_id?: string
   reasons?: string[]
 }
+
+const QUANTCODE_ACTIONABLE_GATE_KINDS = new Set(["merge", "permission"])
 
 ToolRegistry.register({
   name: "run_agent",
@@ -2507,7 +2510,7 @@ ToolRegistry.register({
     const [gate, setGate] = createSignal<QuantCodeGateInfo | null>(null)
     createEffect(() => {
       const status = props.status
-      if (status !== "completed" && status !== "waiting_for_human") return
+      if (status !== "completed" && status !== "waiting_for_human" && status !== "error") return
       const raw = props.output ?? props.metadata?.output
       if (typeof raw !== "string" || !raw) return
       let result: unknown
@@ -2519,7 +2522,17 @@ ToolRegistry.register({
       if (result === null || typeof result !== "object" || !("status" in result)) return
       if ((result as { status: unknown }).status === "waiting_for_human") {
         const value = (result as { gate?: unknown }).gate
-        if (value !== null && typeof value === "object") setGate(value as QuantCodeGateInfo)
+        if (
+          value !== null &&
+          typeof value === "object" &&
+          QUANTCODE_ACTIONABLE_GATE_KINDS.has(String((value as { kind?: unknown }).kind ?? ""))
+        ) {
+          setGate(value as QuantCodeGateInfo)
+        } else {
+          setGate(null)
+        }
+      } else {
+        setGate(null)
       }
       if (notified.value) return
       notified.value = true

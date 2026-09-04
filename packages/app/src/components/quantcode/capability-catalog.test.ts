@@ -19,6 +19,8 @@ const ZH: Record<string, string> = {
   "quantcode.capability.source": "source",
   "quantcode.capability.noMatch": "没有匹配的能力卡片。",
   "quantcode.capability.empty": "能力目录通道尚未接通：等待后端服务。",
+  "quantcode.capability.loading": "正在加载能力目录…",
+  "quantcode.capability.unavailable": "能力目录暂不可用：无法读取服务端目录。",
 }
 const t = (key: string) => ZH[key] ?? key
 
@@ -97,7 +99,7 @@ describe("CapabilityCatalogView", () => {
     view.remove()
   })
 
-  test("injectable fetcher takes precedence; null falls back to trace", async () => {
+  test("injectable fetcher takes precedence; unavailable does not fall back to stale trace", async () => {
     const fetchedCard: CapabilityCard = { name: "Data Access 数据接入", type: "asset", owner_group: "model" }
     const view = mount({
       run: traceRun(JSON.stringify([CARD])),
@@ -111,7 +113,8 @@ describe("CapabilityCatalogView", () => {
     await flush()
     expect(
       [...view2.querySelectorAll(".qc-capability-card strong")].map((el) => el.textContent ?? ""),
-    ).toEqual([CARD.name ?? ""])
+    ).toEqual([])
+    expect(view2.textContent).toContain("能力目录暂不可用")
     view.remove()
     view2.remove()
   })
