@@ -727,6 +727,10 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
   }
 
   const submitInstruction = (content: string, nextView: DetailView = "compose") => {
+    // Guard the shared submission path as well as the form button.  A second
+    // click can otherwise arrive before Solid flushes the signal update or
+    // while the requestAnimationFrame callback is still queued.
+    if (state.submit === "starting") return
     setState({ submit: "starting", error: "" })
 
     if (props.onSubmitInstruction) {
