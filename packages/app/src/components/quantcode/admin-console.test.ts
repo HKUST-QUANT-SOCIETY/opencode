@@ -228,7 +228,7 @@ describe("AdminConsoleView", () => {
 
 describe("admin role visibility (F-09)", () => {
   test("isAdminRole gates the nav item: admin yes, approver/analyst no", () => {
-    expect(isAdminRole("admin-zhang")).toBe(true)
+    expect(isAdminRole("admin")).toBe(true)
     expect(isAdminRole("风控负责人")).toBe(false)
     expect(isAdminRole("Quant Society Member")).toBe(false)
   })

@@ -1,12 +1,10 @@
 import { describe, expect, test } from "bun:test"
-import { SshLoginView, stubSshConnect, type SshConnectFn } from "./ssh-login"
+import { SshLoginView, stubSshConnect, type SshConnectFn, type SshIdentity } from "./ssh-login"
 
 /** 与 zh.ts 同文案的测试用 t（组件要求注入 i18n，见 quantcode.ssh.* keys）。 */
 const ZH: Record<string, string> = {
   "quantcode.ssh.host": "主机",
   "quantcode.ssh.user": "用户名",
-  "quantcode.ssh.privateKey": "私钥",
-  "quantcode.ssh.privateKeyHint": "私钥仅在内存中传给后端，不会保存或回显。",
   "quantcode.ssh.connect": "连接",
   "quantcode.ssh.connecting": "正在连接…",
   "quantcode.ssh.logWaiting": "等待服务器响应…",
@@ -23,45 +21,47 @@ const ZH: Record<string, string> = {
 }
 const t = (key: string) => ZH[key] ?? key
 
-const SECRET = "-----BEGIN OPENSSH PRIVATE KEY-----\nTEST-SECRET-DO-NOT-ECHO\n-----END OPENSSH PRIVATE KEY-----"
+const IDENTITIES: SshIdentity[] = [
+  { id: "analyst-key", label: "analyst-key · analyst@quant.internal", host: "quant.internal", user: "analyst" },
+]
 
-function mount(connect?: SshConnectFn) {
-  const view = SshLoginView({ t, connect })
+function mount(connect?: SshConnectFn, identities: SshIdentity[] = IDENTITIES) {
+  const view = SshLoginView({ t, connect, identities })
   document.body.append(view)
   return view
 }
 
 function fillForm(view: HTMLElement) {
-  const host = view.querySelector<HTMLInputElement>("#qc-ssh-host")!
-  const user = view.querySelector<HTMLInputElement>("#qc-ssh-user")!
-  const key = view.querySelector<HTMLInputElement>("#qc-ssh-key")!
-  host.value = "quant.internal"
-  user.value = "analyst"
-  key.value = SECRET
-  for (const input of [host, user, key]) input.dispatchEvent(new Event("input"))
-  return { host, user, key }
+  const identity = view.querySelector<HTMLSelectElement>("#qc-ssh-identity")!
+  identity.value = "analyst-key"
+  identity.dispatchEvent(new Event("change"))
+  return identity
 }
 
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0))
 
 describe("SshLoginView", () => {
-  test("form state: host/user/key inputs, private key is password-type and connect disabled until filled", () => {
+  test("without a desktop identity bridge, shows an explicit unavailable state", () => {
+    const view = mount(undefined, [])
+    expect(view.querySelector("#qc-ssh-identity")).toBeNull()
+    expect(view.querySelector("#qc-ssh-key")).toBeNull()
+    expect(view.textContent).toContain("SSH 连接服务尚未就绪")
+    view.remove()
+  })
+
+  test("form state selects a local identity and never renders a private-key input", () => {
     const view = mount()
-    expect(view.querySelector<HTMLInputElement>("#qc-ssh-host")).toBeTruthy()
-    expect(view.querySelector<HTMLInputElement>("#qc-ssh-user")).toBeTruthy()
-    const key = view.querySelector<HTMLInputElement>("#qc-ssh-key")!
-    expect(key.type).toBe("password")
-    expect(key.autocomplete).toBe("off")
+    expect(view.querySelector<HTMLSelectElement>("#qc-ssh-identity")).toBeTruthy()
+    expect(view.querySelector("#qc-ssh-key")).toBeNull()
+    expect(view.querySelector("input[type=password]")).toBeNull()
 
     const connect = view.querySelector<HTMLButtonElement>(".qc-button")!
     expect(connect.textContent).toBe("连接")
-    expect(connect.disabled).toBe(true)
-    fillForm(view)
     expect(connect.disabled).toBe(false)
     view.remove()
   })
 
-  test("default stub: form → connecting (log) → failure state with retry, private key never echoed nor kept", async () => {
+  test("default stub: identity selection → connecting → unavailable, without private-key handling", async () => {
     expect(stubSshConnect).toBeTruthy()
     const view = mount()
     fillForm(view)
@@ -81,13 +81,9 @@ describe("SshLoginView", () => {
     const retry = view.querySelector<HTMLButtonElement>(".qc-button")!
     expect(retry.textContent).toBe("重试")
 
-    // 私钥不回显、不保留：任何状态下 DOM 文本里都没有私钥；重试回表单后 key 输入框为空
-    expect(view.textContent).not.toContain("TEST-SECRET-DO-NOT-ECHO")
+    expect(view.textContent).not.toContain("private")
     retry.click()
-    expect(view.querySelector<HTMLInputElement>("#qc-ssh-host")!.value).toBe("quant.internal")
-    expect(view.querySelector<HTMLInputElement>("#qc-ssh-user")!.value).toBe("analyst")
-    expect(view.querySelector<HTMLInputElement>("#qc-ssh-key")!.value).toBe("")
-    expect(view.textContent).not.toContain("TEST-SECRET-DO-NOT-ECHO")
+    expect(view.querySelector<HTMLSelectElement>("#qc-ssh-identity")!.value).toBe("analyst-key")
     view.remove()
   })
 
@@ -105,7 +101,7 @@ describe("SshLoginView", () => {
     expect(badges).toEqual(["factor 组", "risk 组"])
 
     view.querySelector<HTMLButtonElement>(".qc-button")!.click()
-    expect(view.querySelector("#qc-ssh-host")).toBeTruthy()
+    expect(view.querySelector("#qc-ssh-identity")).toBeTruthy()
     view.remove()
   })
 
@@ -133,7 +129,6 @@ describe("SshLoginView", () => {
     view.querySelector<HTMLButtonElement>(".qc-button")!.click()
     await flush()
     expect(view.querySelector(".qc-ssh-reason")?.textContent).toBe("主机不可达")
-    expect(view.textContent).not.toContain("TEST-SECRET-DO-NOT-ECHO")
     view.remove()
   })
 })

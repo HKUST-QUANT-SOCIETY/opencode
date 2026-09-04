@@ -1,9 +1,8 @@
 /**
  * F-04 Memory 查询视图：搜索框 + 结果列表（snippet 高亮 + 相对分数条）。
  *
- * 数据源：MemoryService FTS 在后端 runner/memory；本波后端只交付 admin_* 元工具，
- * 没有 lens 可直调的 memory_search 通道 → 组件暴露可注入 fetcher，默认空态 +
- * 占位提示（绝不造假数据）。后端 meta 工具就绪后在 panels.tsx 注入真实 fetcher。
+ * 数据源：MemoryService FTS 在后端 runner/memory；面板通过 OpenCode 的受限
+ * QuantCode read-only surface 注入 fetcher。未连接/空库保持明确空态，绝不造假数据。
  * 跨组读取被拒（MemoryPermissionError fail-closed）→ "无权限" 空态。
  * 纯 DOM 构建（沿 ssh-login 模式，bun test 兼容）。
  */
@@ -30,8 +29,8 @@ export type MemoryQueryProps = {
 }
 
 /**
- * ponytail: 后端本波无 memory_search meta 工具（AG-D 只交付 admin_*）——
- * 默认 fetcher 恒返 null（占位空态）；工具就绪后替换为真实通道即可。
+ * Isolated consumers keep a deterministic unavailable fallback; the production
+ * panel injects the server-backed search implementation.
  */
 export const stubMemoryFetcher: MemoryQueryFetcher = async () => null
 

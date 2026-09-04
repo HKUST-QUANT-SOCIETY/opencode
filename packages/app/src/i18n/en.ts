@@ -1017,7 +1017,7 @@ export const dict = {
   "quantcode.gate.defaultRejectHint": "No action means reject (default)",
   "quantcode.group.label": "Group:",
   "quantcode.group.switchHint":
-    "Switching groups only sets the group parameter for the next run_agent instruction; the actual MCP server side is decided by environment variables.",
+    "The group is bound by the authenticated server session; sign in again to use another group.",
   "quantcode.monitor.sessionAggregate": "Session run aggregate",
   "quantcode.monitor.crossSessionHint":
     "The above aggregates this session only; for cross-session history query the list_runs MCP tool in chat.",
@@ -1059,7 +1059,7 @@ export const dict = {
   "quantcode.capability.apiSurface": "API surface",
   "quantcode.capability.source": "source",
   "quantcode.capability.noMatch": "No matching capability cards.",
-  "quantcode.capability.empty": "Capability catalog is not connected yet: waiting for the list_capabilities meta tool (via run trace or an injected fetcher).",
+  "quantcode.capability.empty": "Capability catalog is not connected yet: waiting for the backend service.",
   "quantcode.memory.title": "Memory Query",
   "quantcode.memory.intro": "Search group and shared Memory (read-only, cross-group fail-closed).",
   "quantcode.memory.searchPlaceholder": "Search research memory…",

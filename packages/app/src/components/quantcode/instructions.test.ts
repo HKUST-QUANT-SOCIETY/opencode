@@ -2,14 +2,13 @@ import { describe, expect, test } from "bun:test"
 import { buildComposePrefix, buildResearchInstruction, buildResumeInstruction } from "./instructions"
 
 describe("QuantCode run_agent instructions", () => {
-  test("quotes user task and group as JSON values", () => {
+  test("quotes user task and forbids user-supplied group", () => {
     const instruction = buildResearchInstruction({
       task: 'compare "alpha"\nthen review',
-      group: "risk",
       skillLabel: "Risk Review",
     })
     expect(instruction).toContain('task: "compare \\"alpha\\"\\nthen review"')
-    expect(instruction).toContain('group: "risk"')
+    expect(instruction).toContain("authenticated Session Context")
     expect(instruction).toContain("quantcode_run_agent")
   })
 
@@ -20,14 +19,15 @@ describe("QuantCode run_agent instructions", () => {
     expect(instruction).toContain("Do not start a new research task")
   })
 
-  test("builds the slash-command prefix from the shared group contract", () => {
-    const prefix = buildComposePrefix("factor")
-    expect(prefix).toContain('group: "factor"')
+  test("builds the slash-command prefix from the authenticated session contract", () => {
+    const prefix = buildComposePrefix()
+    expect(prefix).toContain("group: use the authenticated Session Context")
+    expect(prefix).not.toContain('group: "factor"')
     expect(prefix).toEndWith("=== USER TASK ===\n")
   })
 
   test("carries the P-07 reuse discipline and P-10 solution-first clause on every run instruction", () => {
-    const instruction = buildResearchInstruction({ task: "demo", group: "factor", skillLabel: "Risk Review" })
+    const instruction = buildResearchInstruction({ task: "demo", skillLabel: "Risk Review" })
     expect(instruction).toContain("capability catalog")
     expect(instruction).toContain("ask the human first")
     expect(instruction).toContain("draft_solution")

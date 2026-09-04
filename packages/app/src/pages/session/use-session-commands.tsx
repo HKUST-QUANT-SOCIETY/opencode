@@ -1,5 +1,4 @@
 import { useNavigate } from "@solidjs/router"
-import { createStore } from "solid-js/store"
 import { useCommand, type CommandOption } from "@/context/command"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { previewSelectedLines } from "@opencode-ai/session-ui/pierre/selection-bridge"
@@ -9,7 +8,6 @@ import { useLayout } from "@/context/layout"
 import { useLocal } from "@/context/local"
 import { usePermission } from "@/context/permission"
 import { usePrompt } from "@/context/prompt"
-import { Persist, persisted } from "@/utils/persist"
 import { useSDK } from "@/context/sdk"
 import { useSettings } from "@/context/settings"
 import { useSync } from "@/context/sync"
@@ -23,7 +21,7 @@ import { useSessionLayout } from "@/pages/session/session-layout"
 import { useTabs } from "@/context/tabs"
 import { requireServerKey } from "@/utils/session-route"
 import { isQuantCode } from "@/brand"
-import { buildComposePrefix, type QuantCodeGroup } from "@/components/quantcode/instructions"
+import { buildComposePrefix } from "@/components/quantcode/instructions"
 import { createSessionOwnership } from "./session-ownership"
 
 export type SessionCommandContext = {
@@ -56,10 +54,6 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
   const layout = useLayout()
   const navigate = useNavigate()
   const { params, sessionKey, tabs, view } = useSessionLayout()
-  const [quantcodePrefs] = persisted(
-    Persist.global("quantcode.day5"),
-    createStore({ group: "factor" as QuantCodeGroup }),
-  )
   const sessionOwnership = createSessionOwnership(sessionKey)
   const openDialog = async <T,>(load: () => Promise<T>, show: (value: T) => void) => {
     const owner = sessionOwnership.capture()
@@ -575,13 +569,12 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
             description: "触发 QuantCode Compose 流（强制调 run_agent MCP tool）",
             slash: "compose",
             onSelect: () => {
-              // Force the LLM to call the run_agent MCP tool with the correct group.
+              // Force the LLM to call run_agent; the server derives group from Session Context.
               // No conversational preamble — the entire payload is an imperative instruction
               // that the LLM must treat as the highest-priority action.
-              const group = quantcodePrefs.group ?? "factor"
               // ★ FIXED: MCP tool names use single underscore (quantcode_run_agent), not double (mcp__quantcode__run_agent).
               //   McpCatalog.toolName() → sanitize(clientName) + "_" + sanitize(name) → "quantcode" + "_" + "run_agent"
-              const prefix = buildComposePrefix(group)
+              const prefix = buildComposePrefix()
               prompt.set([{ type: "text" as const, content: prefix, start: 0, end: prefix.length }], prefix.length)
               actions.focusInput()
             },
@@ -620,21 +613,6 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
     }),
   ]
 
-  // QuantCode: /deploy 命令 — P-09 黑盒部署（agent 调 deploy_alphaflow，结果走 kind=deploy 审批）
-  const deployCmds = () => [
-    sessionCommand({
-      id: "quantcode.deploy",
-      title: language.t("quantcode.cmd.deploy.title"),
-      description: language.t("quantcode.cmd.deploy.description"),
-      slash: "deploy",
-      onSelect: () => {
-        const template = language.t("quantcode.cmd.deploy.template")
-        prompt.set([{ type: "text" as const, content: template, start: 0, end: template.length }], template.indexOf("<"))
-        actions.focusInput()
-      },
-    }),
-  ]
-
   const permissionsCmds = () => [
     permissionsCommand({
       id: "permissions.autoaccept",
@@ -660,6 +638,5 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
     ...composeCmds(),
     ...goalCmds(),
     ...solutionCmds(),
-    ...deployCmds(),
   ])
 }

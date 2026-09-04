@@ -907,7 +907,7 @@ export const dict = {
   "quantcode.gate.defaultRejectHint": "不操作视为拒绝（默认）",
   "quantcode.group.label": "组：",
   "quantcode.group.switchHint":
-    "组切换仅影响下次 run_agent 指令里的 group 参数；MCP server 侧由环境变量决定。",
+    "组由服务端认证会话绑定；需要切换业务组时请重新登录。",
   "quantcode.monitor.sessionAggregate": "本次会话 run 聚合",
   "quantcode.monitor.crossSessionHint":
     "以上为本次会话内的实时聚合；跨会话历史请在对话中用 list_runs MCP 工具查询。",
@@ -949,7 +949,7 @@ export const dict = {
   "quantcode.capability.apiSurface": "接口面",
   "quantcode.capability.source": "来源",
   "quantcode.capability.noMatch": "没有匹配的能力卡片。",
-  "quantcode.capability.empty": "能力目录通道尚未接通：等待后端 list_capabilities 元工具（经 run trace 或注入 fetcher）。",
+  "quantcode.capability.empty": "能力目录通道尚未接通：等待后端服务。",
   "quantcode.memory.title": "Memory 查询",
   "quantcode.memory.intro": "检索组内与共享 Memory（只读，跨组 fail-closed）。",
   "quantcode.memory.searchPlaceholder": "搜索研究记忆…",

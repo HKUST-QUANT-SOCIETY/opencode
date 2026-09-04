@@ -18,7 +18,7 @@ const ZH: Record<string, string> = {
   "quantcode.capability.apiSurface": "接口面",
   "quantcode.capability.source": "source",
   "quantcode.capability.noMatch": "没有匹配的能力卡片。",
-  "quantcode.capability.empty": "能力目录通道尚未接通：等待后端 list_capabilities 元工具（经 run trace 或注入 fetcher）。",
+  "quantcode.capability.empty": "能力目录通道尚未接通：等待后端服务。",
 }
 const t = (key: string) => ZH[key] ?? key
 
@@ -31,6 +31,9 @@ const CARD: CapabilityCard = {
   when_not_to_reinvent: "别自写 rank_ic / quantile_spread 等指标——注册表已覆盖",
   owner_group: "factor",
   source_commit: "73223a4",
+  canonical_repo: "quant_evaluator",
+  maturity_status: "PRODUCTION",
+  integration_status: "PARTIAL",
 }
 
 function traceRun(resultJson: string): RunAgentResult {
@@ -77,6 +80,9 @@ describe("CapabilityCatalogView", () => {
     const view = mount({ run: traceRun(JSON.stringify([CARD])) })
     expect(view.querySelector(".qc-capability-card strong")?.textContent).toBe(CARD.name)
     expect(view.querySelectorAll(".qc-capability-card .qc-status")[0]?.textContent).toBe("asset")
+    expect(view.textContent).toContain("maturity: PRODUCTION")
+    expect(view.textContent).toContain("integration: PARTIAL")
+    expect(view.textContent).toContain("quant_evaluator")
     expect(view.querySelector(".qc-capability-owner")?.textContent).toBe("属组: factor")
     const ban = view.querySelector(".qc-capability-ban")?.textContent ?? ""
     expect(ban).toContain("何时别自造")

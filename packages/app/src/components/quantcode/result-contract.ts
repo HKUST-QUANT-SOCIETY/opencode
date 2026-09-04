@@ -11,6 +11,11 @@ export type TraceEvent = {
 
 export type RunAgentResult = {
   status: string
+  task_id?: string
+  group?: string
+  actor_id?: string
+  role?: string
+  session_id?: string
   thread_id?: string
   timestamp?: number
   gate?: {
@@ -98,7 +103,15 @@ function isGate(value: unknown) {
 
 export function isRunAgentResult(value: unknown): value is RunAgentResult {
   if (!isRecord(value) || typeof value.status !== "string") return false
-  if (!isOptionalString(value.thread_id) || !isOptionalNumber(value.timestamp)) return false
+  if (
+    !isOptionalString(value.thread_id) ||
+    !isOptionalString(value.task_id) ||
+    !isOptionalString(value.group) ||
+    !isOptionalString(value.actor_id) ||
+    !isOptionalString(value.role) ||
+    !isOptionalString(value.session_id) ||
+    !isOptionalNumber(value.timestamp)
+  ) return false
   if (!isOptionalString(value.human_decision) || !isOptionalString(value.error)) return false
   if (!isGate(value.gate) || !isReviewHistory(value.human_review_history)) return false
   if (

@@ -11,7 +11,7 @@
 文件：`packages/app/src/pages/session/use-session-commands.tsx`
 
 - 在 `composeCmds()` 里注册了 `slash: "compose"`，选中后会预填 prompt：`"请用 run_agent 完成以下任务："` 并聚焦输入框。
-- `.opencode/opencode.jsonc` 配置了一个名为 `quantcode` 的本地 MCP server，默认保持禁用；启用后，**`/compose` 选完用户填任务，agent 就会自动调用 `quantcode_run_agent` MCP tool**。组别是传给 tool 的参数，不是六个独立的 MCP server。
+- `.opencode/opencode.jsonc` 配置了一个名为 `quantcode` 的本地 MCP server，默认保持禁用；启用后，**`/compose` 选完用户填任务，agent 就会自动调用 `quantcode_run_agent` MCP tool**。组别只能来自服务端 Session Context，不接受任务或 UI 参数覆盖。
 
 ### 2. QuantCode 六面板组件
 
@@ -23,19 +23,19 @@
 - **任务树**：按 tool_call 事件线性列出步骤
 - **HumanGate**：`waiting_for_human` 状态时显示暂停提示 + reasons + thread_id
 - **Schema 卡片**：渲染 `output_data`（JSON）+ artifacts 路径列表
-- **Memory 浏览器**：静态提示（Week 2 补只读 MCP tool）
+- **Memory 浏览器**：通过受限 `search_memory` 只读通道查询组内长期 Memory；未连接和空库显示明确状态
 - **会话 Resume**：最近 20 个 thread 的状态历史
 
 导出接口：
 
 ```ts
-import { QuantCodePanel, updateQuantCodeTrace, setQuantCodeGroup } from "@/components/quantcode/panels"
+import { QuantCodePanel, updateQuantCodeTrace, setQuantCodeSessionGroup } from "@/components/quantcode/panels"
 ```
 
 **关键函数**：
 
 - `updateQuantCodeTrace(result: RunAgentResult)` — 当 run_agent 返回 execution_trace 时调用，更新所有面板
-- `setQuantCodeGroup(group: string)` — 切组时调用，更新组标识显示
+- `setQuantCodeSessionGroup(group: string)` — 仅由服务端认证上下文桥接调用；页面不提供手动切组
 
 ### 3. Python bridge（demo 降级路径）
 
@@ -58,7 +58,7 @@ python -m runner.demo_bridge --group factor --task "测 PB-ROE 因子" --jsonl
 OpenCode channel 仍保留原来的项目/会话首页。首页提交流程如下：
 
 1. 在 Compose 区填写任务，或先套用任务模板。
-2. 选择 Skill 和研究组，然后点击 **Start Research**（也支持
+2. 确认服务端绑定的组并选择 Skill，然后点击 **Start Research**（也支持
    Command/Ctrl+Enter）。
 3. 如果 Server B 已记录最近项目，任务会绑定到该项目；首次使用且没有项目时，
    会打开原生目录选择器。
@@ -76,7 +76,7 @@ OpenCode channel 仍保留原来的项目/会话首页。首页提交流程如�
 **Step 0 — 只读目录/状态接线**
 
 OpenCode server 提供受限的 `GET /experimental/quantcode/tool` surface。它只允许
-`list_skills`、`list_algorithms`、`list_capabilities`、`ssh_status` 四个固定只读工具，
+`search_memory`、`list_skills`、`list_algorithms`、`list_capabilities`、`ssh_status`、`session_context` 六个固定只读工具，
 不会把任意 MCP tool invoke 暴露给浏览器。Skill 下拉按认证组动态刷新，算法目录在
 Settings 渲染；查询失败显示未连接，不回退到过期硬编码目录。`ssh_status` 仅报告本地
 配置摘要，真实 SSH 私钥认证和网络连通性探测仍需独立 gateway。
@@ -102,18 +102,17 @@ if (result) updateQuantCodeTrace(result)
 
 **Step 3 — 切组与 HumanGate resume**
 
-组选择器与面板共用 `QUANTCODE_GROUPS` 契约；HumanGate 的批准/拒绝按钮会提交精确的 `thread_id + decision` resume 指令，而不是广播无人消费的 UI 事件。
+组由服务端认证 Session Context 提供，页面不提供自由切组控件；HumanGate 的批准/拒绝按钮会提交精确的 `thread_id + decision` resume 指令，而不是广播无人消费的 UI 事件。
 
 ```tsx
 import { buildResumeInstruction } from "@/components/quantcode/instructions"
 const prompt = buildResumeInstruction(threadID, "approve")
 ```
 
-### 可选（P1，Week 2）
+### 尚未接通的外部能力
 
-- **Memory 浏览器真实化**：在 `quantcode/mcp_server.py` 加 `search_memory` 只读 tool，
-  前端面板从 MCP 调它，替换现在的静态提示
-- **Checkpoint 列表**：从 `.quantcode/checkpoints.db` 读 thread 列表（或加 MCP tool）
+- **真实 SSH gateway**：当前 `ssh_status` 只读配置和绑定状态，不执行网络探测或私钥认证；桌面 bridge 不可用时显示 unavailable。
+- **Checkpoint 列表**：仍需从 `.quantcode/checkpoints.db` 读取 thread 列表（或增加受控只读工具）。
 
 ---
 
@@ -122,8 +121,8 @@ const prompt = buildResumeInstruction(threadID, "approve")
 运行格式：
 
 ```json
-// start
-{ "name": "run_agent", "arguments": { "task": "...", "group": "risk" } }
+// start（group 由已认证 Session Context 注入）
+{ "name": "run_agent", "arguments": { "task": "..." } }
 // resume
 { "name": "run_agent", "arguments": { "thread_id": "...", "decision": "approve" } }
 ```

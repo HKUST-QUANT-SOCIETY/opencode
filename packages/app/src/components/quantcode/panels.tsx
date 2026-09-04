@@ -30,7 +30,6 @@ import { QcBigNumber, QcProgress, formatMetricValue, type MetricTone } from "./m
 import { buildResearchInstruction, buildResumeInstruction, QUANTCODE_GROUPS, type QuantCodeGroup } from "./instructions"
 import { isRunAgentResult, type RunAgentResult, type TraceEvent } from "./result-contract"
 import { submitQuantCodeInstruction, type QuantCodeSubmissionHandler } from "./submission"
-import { isAdminRole, resolveRole } from "./roles"
 import { FactorFlowView } from "./factor-screen"
 import { NotificationsBell, NotificationsPanel, pendingNotifications, updateNotifications } from "./notifications"
 import { PitValuationView } from "./pit-screen"
@@ -44,6 +43,9 @@ import { GitGraphPanelView } from "./gitgraph-panel"
 import {
   listQuantCodeAlgorithms,
   listQuantCodeSkills,
+  listQuantCodeCapabilities,
+  searchQuantCodeMemory,
+  getQuantCodeSessionContext,
   createSshStatusConnect,
   type QuantCodeAlgorithm,
   type QuantCodeSkill,
@@ -57,18 +59,25 @@ const [_threadHistory, setThreadHistory] = createSignal<RunAgentResult[]>([])
 /** run_agent 结果所属的 opencode session；HumanGate resume 需要向它发 prompt */
 const [_sessionId, setSessionId] = createSignal<string | undefined>(undefined)
 
-try {
-  const raw = localStorage.getItem("quantcode:thread_cache")
-  if (raw) {
-    const parsed: unknown = JSON.parse(raw)
+let activeThreadCacheKey: string | undefined
+
+function scopedThreadCacheKey(context: { actor_id?: string; group: string; workspace_id?: string }) {
+  if (!context.actor_id) return
+  const scope = [context.actor_id, context.group, context.workspace_id ?? ""].join(":")
+  return `quantcode:thread_cache:${encodeURIComponent(scope)}`
+}
+
+function loadScopedThreadCache(key: string) {
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(key) ?? "null")
     const items = Array.isArray(parsed) ? parsed.filter(isRunAgentResult) : []
     if (items[0]) {
       setTrace(items[0])
       setThreadHistory(items)
     }
+  } catch {
+    // Local storage is unavailable in SSR and hardened browser contexts.
   }
-} catch {
-  // Local storage is unavailable in SSR and hardened browser contexts.
 }
 
 function mergeTraceEvents(existing: TraceEvent[], incoming: TraceEvent[]) {
@@ -121,15 +130,16 @@ export function updateQuantCodeTrace(result: RunAgentResult) {
   })
 
   queueMicrotask(() => {
+    if (!activeThreadCacheKey) return
     try {
-      localStorage.setItem("quantcode:thread_cache", JSON.stringify(_threadHistory().slice(0, 50)))
+      localStorage.setItem(activeThreadCacheKey, JSON.stringify(_threadHistory().slice(0, 50)))
     } catch {
       // The workspace remains usable without persistence.
     }
   })
 }
 
-export function setQuantCodeGroup(group: string) {
+export function setQuantCodeSessionGroup(group: string) {
   if (!QUANTCODE_GROUPS.includes(group as QuantCodeGroup)) return
   setGroup(group)
 }
@@ -180,14 +190,6 @@ type DetailView =
   | "gitgraph"
 type SubmitState = "idle" | "starting" | "submitted" | "error"
 type GateDecision = "approve" | "reject"
-
-function readIdentity() {
-  try {
-    return localStorage.getItem("quantcode:ssh_identity") || "Quant Society Member"
-  } catch {
-    return "Quant Society Member"
-  }
-}
 
 function taskFromRun(run: RunAgentResult) {
   const event = run.execution_trace?.find((item) => item.type === "agent_start")
@@ -385,11 +387,16 @@ function ActivityPanel(props: { onUseTask: (task: string) => void }): JSX.Elemen
   )
 }
 
-function GatePanel(props: { onResume: (threadId: string, decision: "approve" | "reject") => void }): JSX.Element {
+function GatePanel(props: {
+  onResume: (threadId: string, decision: "approve" | "reject") => void
+  role: string
+}): JSX.Element {
   const run = createMemo(() => _trace())
-  const gate = createMemo(() => run()?.gate)
+  const gate = createMemo(() => {
+    const value = run()?.gate
+    return value?.kind && value.kind in GATE_KIND_LABELS ? value : undefined
+  })
   const waiting = createMemo(() => run()?.status === "waiting_for_human" && !!gate())
-  const role = resolveRole(readIdentity())
 
   return (
     <div class="qc-detail-body">
@@ -408,11 +415,11 @@ function GatePanel(props: { onResume: (threadId: string, decision: "approve" | "
             <span class={`qc-status ${waiting() ? "qc-status-waiting_for_human" : "qc-status-completed"}`}>
               {waiting() ? "等待人工判断" : "审批已记录"}
             </span>
-            {/* v2 收窄：仅四类写操作进此屏，卡片按 kind 显示徽章（U1-A6） */}
+            {/* v5: only merge/permission gates can reach this panel. */}
             <Show when={item().kind}>
               <span class="qc-status qc-gate-kind">{GATE_KIND_LABELS[item().kind!] ?? item().kind}</span>
             </Show>
-            <h3 class="qc-gate-title">{item().message ?? "HumanGate risk review"}</h3>
+            <h3 class="qc-gate-title">{item().message ?? "HumanGate review"}</h3>
             <div class="qc-detail-section">
               <span class="qc-section-label">REASONS</span>
               <For each={item().reasons ?? []}>
@@ -425,12 +432,12 @@ function GatePanel(props: { onResume: (threadId: string, decision: "approve" | "
               </For>
             </div>
             <div class="qc-detail-section">
-              <span class="qc-section-label">RISK METRICS</span>
+              <span class="qc-section-label">EVIDENCE</span>
               <For each={Object.entries(item().risk_metrics ?? {}).filter(([, raw]) => typeof raw === "number" && Number.isFinite(raw))}>
                 {([key, raw]) => QcProgress({ label: METRIC_LABELS[key] ?? key, value: raw as number })}
               </For>
             </div>
-            <Show when={waiting() && run()?.thread_id && role === "approver"}>
+            <Show when={waiting() && run()?.thread_id && (props.role === "approver" || props.role === "admin")}>
               <div class="qc-gate-actions">
                 <button
                   type="button"
@@ -448,9 +455,9 @@ function GatePanel(props: { onResume: (threadId: string, decision: "approve" | "
                 </button>
               </div>
             </Show>
-            <Show when={waiting() && role === "analyst"}>
+            <Show when={waiting() && props.role === "analyst"}>
               <div class="qc-gate-actions qc-gate-readonly">
-                <p>由风控负责人审批（当前身份：{role}）</p>
+                <p>由有权限的审批人处理（当前身份：{props.role}）</p>
                 <p>可通过 PR 评论提出意见</p>
               </div>
             </Show>
@@ -464,9 +471,7 @@ function GatePanel(props: { onResume: (threadId: string, decision: "approve" | "
 /** v2 收窄后进 GatePanel 的四类写操作 kind → 徽章文案（U1-A6；未知 kind 原样显示）。 */
 const GATE_KIND_LABELS: Record<string, string> = {
   merge: "主线入库",
-  deploy: "生产部署",
   permission: "跨组权限",
-  budget: "预算超限",
 }
 
 function skillLabel(skill: QuantCodeSkill) {
@@ -478,6 +483,9 @@ function SettingsPanel(props: {
   onSkillChange: (skill: string) => void
   skills: QuantCodeSkill[]
   skillsStatus: "loading" | "ready" | "error"
+  sessionStatus: "loading" | "ready" | "error"
+  sessionRole: string
+  sessionActor: string
   algorithms: QuantCodeAlgorithm[]
   serverName: string
   serverReady: boolean
@@ -491,24 +499,21 @@ function SettingsPanel(props: {
       <div class="qc-setting-row">
         <div>
           <span class="qc-section-label">SSH IDENTITY</span>
-          <strong>{readIdentity()}</strong> <span class="qc-status">{resolveRole(readIdentity())}</span>
+          <strong>{props.sessionActor}</strong> <span class="qc-status">{props.sessionRole}</span>
           <p>身份名称保存在本机；服务器认证由 OpenCode 连接配置管理。</p>
         </div>
         <span class="qc-connection-pill" classList={{ "is-disconnected": !props.serverReady }}>
           <i /> {props.serverReady ? "已连接" : "未连接"}
         </span>
       </div>
-      <label class="qc-field-label" for="qc-settings-group">
-        研究组
-      </label>
-      <select
-        id="qc-settings-group"
-        class="qc-select-wide"
-        value={_group()}
-        onChange={(event) => setQuantCodeGroup(event.currentTarget.value)}
-      >
-        <For each={QUANTCODE_GROUPS}>{(group) => <option value={group}>{group}</option>}</For>
-      </select>
+      <div class="qc-setting-row">
+        <div>
+          <span class="qc-section-label">SESSION GROUP</span>
+          <strong>{props.sessionStatus === "ready" ? _group() : "未连接"}</strong>
+          <span class="qc-status">{props.sessionRole}</span>
+        </div>
+        <span class="qc-status">{props.sessionStatus === "ready" ? "服务端绑定" : "身份接线未完成"}</span>
+      </div>
       <label class="qc-field-label" for="qc-settings-skill">
         默认 Skill
       </label>
@@ -562,6 +567,9 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
     skill: "",
     skills: [] as QuantCodeSkill[],
     skillsStatus: "loading" as "loading" | "ready" | "error",
+    sessionStatus: "loading" as "loading" | "ready" | "error",
+    sessionRole: "未连接",
+    sessionActor: "未连接",
     algorithms: [] as QuantCodeAlgorithm[],
     submit: "idle" as SubmitState,
     error: "",
@@ -575,8 +583,8 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
   const [notifOpen, setNotifOpen] = createSignal(false)
   const notifItems = createMemo(() => pendingNotifications(_threadHistory(), _trace()))
   const updateItems = createMemo(() => updateNotifications(_threadHistory()))
-  /** F-09：Admin 中枢仅 admin 角色可见（roles.ts 启发式；权威源待 G4） */
-  const adminViewable = createMemo(() => isAdminRole(readIdentity()))
+  /** F-09: admin 中枢仅服务端签发的 admin 角色可见。 */
+  const adminViewable = createMemo(() => state.sessionStatus === "ready" && state.sessionRole === "admin")
 
   /** 通知"去审批"：把目标 run 设为当前 trace 并切到 HumanGate 视图。 */
   const focusGateThread = (threadId: string) => {
@@ -606,8 +614,33 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
   onCleanup(() => setQuantCodeTraceListener(null))
 
   let skillsRequest = 0
+  onMount(() => {
+    void getQuantCodeSessionContext(serverSDK().client).then(
+      (context) => {
+        const group = context.group
+        if (!group || !QUANTCODE_GROUPS.includes(group as QuantCodeGroup)) {
+          activeThreadCacheKey = undefined
+          resetQuantCodeState()
+          setState({ sessionStatus: "error", sessionRole: "身份组无效", sessionActor: "未连接", skillsStatus: "error", skill: "" })
+          return
+        }
+        activeThreadCacheKey = scopedThreadCacheKey({ ...context, group })
+        resetQuantCodeState()
+        if (activeThreadCacheKey) loadScopedThreadCache(activeThreadCacheKey)
+        setQuantCodeSessionGroup(group)
+        setState({ sessionStatus: "ready", sessionRole: context.role ?? "analyst", sessionActor: context.actor_id ?? "已认证身份" })
+      },
+      () => {
+        activeThreadCacheKey = undefined
+        resetQuantCodeState()
+        setState({ sessionStatus: "error", sessionRole: "身份接线未完成", sessionActor: "未连接", skillsStatus: "error", skill: "" })
+      },
+    )
+  })
+
   createEffect(() => {
     const group = _group()
+    if (state.sessionStatus !== "ready") return
     const request = ++skillsRequest
     setState({ skillsStatus: "loading", skills: [], skill: "" })
     void listQuantCodeSkills(serverSDK().client, group).then(
@@ -633,6 +666,7 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
   const selectedSkillLabel = createMemo(() => {
     const skill = selectedSkill()
     if (skill) return skillLabel(skill)
+    if (state.sessionStatus !== "ready") return "身份未连接"
     return state.skillsStatus === "loading" ? "正在加载 Skill 目录…" : "Skill 目录未连接"
   })
   const gateWaiting = createMemo(() => _trace()?.status === "waiting_for_human")
@@ -683,7 +717,6 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
   const instruction = () => {
     return buildResearchInstruction({
       task: state.task.trim(),
-      group: _group(),
       skillLabel: selectedSkillLabel(),
     })
   }
@@ -727,7 +760,7 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
   }
 
   const submitResearch = () => {
-    if (!state.task.trim() || !state.skill || state.submit === "starting") return
+    if (!state.task.trim() || !state.skill || state.sessionStatus !== "ready" || state.submit === "starting") return
     submitInstruction(instruction())
   }
 
@@ -892,9 +925,9 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
       <main class="qc-main">
         <header class="qc-identity-bar">
           <div class="qc-identity">
-            <span>{readIdentity()}</span>
+            <span>{state.sessionActor}</span>
             <i />
-            <strong>{_group()}</strong>
+            <strong>{state.sessionStatus === "ready" ? _group() : "未连接"}</strong>
           </div>
           <div class="qc-environment">
             <span>{serverName()}</span>
@@ -984,7 +1017,9 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
                       <span>⌘ ENTER</span>
                       <button
                         type="button"
-                        disabled={!state.task.trim() || !state.skill || state.submit === "starting"}
+                        disabled={
+                          !state.task.trim() || !state.skill || state.sessionStatus !== "ready" || state.submit === "starting"
+                        }
                         onClick={submitResearch}
                       >
                         <Show
@@ -1111,13 +1146,20 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
                   <PitValuationView run={_trace()} />
                 </Match>
                 <Match when={state.view === "gate"}>
-                  <GatePanel onResume={(threadId, decision) => sendGateDecision(decision)} />
+                  <GatePanel role={state.sessionRole} onResume={(threadId, decision) => sendGateDecision(decision)} />
                 </Match>
                 <Match when={state.view === "memory"}>
-                  <MemoryQueryView t={language.t as (key: string) => string} />
+                  <MemoryQueryView
+                    t={language.t as (key: string) => string}
+                    fetcher={(query) => searchQuantCodeMemory(serverSDK().client, query)}
+                  />
                 </Match>
                 <Match when={state.view === "capabilities"}>
-                  <CapabilityCatalogView t={language.t as (key: string) => string} run={_trace()} />
+                  <CapabilityCatalogView
+                    t={language.t as (key: string) => string}
+                    run={_trace()}
+                    fetcher={() => listQuantCodeCapabilities(serverSDK().client)}
+                  />
                 </Match>
                 <Match when={state.view === "solution"}>
                   <SolutionPanelView t={language.t as (key: string) => string} run={_trace()} />
@@ -1143,6 +1185,9 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
                     onSkillChange={(skill) => setState("skill", skill)}
                     skills={state.skills}
                     skillsStatus={state.skillsStatus}
+                    sessionStatus={state.sessionStatus}
+                    sessionRole={state.sessionRole}
+                    sessionActor={state.sessionActor}
                     algorithms={state.algorithms}
                     serverName={serverName()}
                     serverReady={serverReady()}

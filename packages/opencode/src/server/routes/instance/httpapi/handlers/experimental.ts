@@ -124,8 +124,16 @@ export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "exper
     const quantcodeTool = Effect.fn("ExperimentalHttpApi.quantcodeTool")(function* (ctx: {
       query: typeof QuantCodeToolQuery.Type
     }) {
-      const args = ctx.query.tool === "list_skills" ? { group: ctx.query.group ?? "" } : {}
+      const args =
+        ctx.query.tool === "list_skills"
+          ? { group: ctx.query.group ?? "" }
+          : ctx.query.tool === "search_memory"
+            ? { query: ctx.query.query ?? "", limit: ctx.query.limit ?? 10 }
+            : {}
       if (ctx.query.tool === "list_skills" && !ctx.query.group?.trim()) {
+        return yield* Effect.fail(new HttpApiError.BadRequest({}))
+      }
+      if (ctx.query.tool === "search_memory" && !ctx.query.query?.trim()) {
         return yield* Effect.fail(new HttpApiError.BadRequest({}))
       }
       const result = yield* (mcp.callTool

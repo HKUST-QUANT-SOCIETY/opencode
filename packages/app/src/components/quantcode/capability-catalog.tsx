@@ -1,9 +1,8 @@
 /**
  * F-04/P-07 能力目录视图：组织已登记能力卡片列表。
  *
- * 数据源（spec 设计原则 4：trace 事件是数据源的主干）：
- * - 主通道 = execution_trace 里 list_capabilities 的 tool_result 事件（agent 调元工具后回流）；
- * - 可注入 fetcher 作为备用通道（未来 lens→MCP 直连时注入）。
+ * 数据源：生产面板优先消费 OpenCode 受限 read-only surface 的 fetcher；
+ * 当前 run 的 list_capabilities trace 作为回放/离线降级通道。
  *
  * 游客组被 Mask 的卡片后端已过滤，UI 无感知。
  * 纯 DOM 构建（沿 ssh-login / settings-supplier 模式，bun test 兼容）。
@@ -19,6 +18,14 @@ export type CapabilityCard = {
   when_not_to_reinvent?: string
   owner_group?: string
   source_commit?: string
+  canonical_repo?: string
+  maturity_status?: string
+  integration_status?: string
+  domain_authority?: string
+  depends_on?: string[]
+  consumed_by?: string[]
+  deprecated_aliases?: string[]
+  observed_at?: string
 }
 
 export type CapabilityFetcher = () => Promise<CapabilityCard[] | null>
@@ -101,12 +108,24 @@ export function CapabilityCatalogView(props: CapabilityCatalogProps): HTMLElemen
     name.textContent = card.name ?? ""
     head.append(name)
     if (isCardText(card.type)) head.append(chip(card.type))
+    if (isCardText(card.maturity_status)) head.append(chip(`maturity: ${card.maturity_status}`))
+    if (isCardText(card.integration_status)) {
+      const tone = card.integration_status === "CONNECTED" ? "green" : "yellow"
+      head.append(chip(`integration: ${card.integration_status}`, tone))
+    }
     if (isCardText(card.owner_group)) {
       const owner = chip(`${t("quantcode.capability.ownerGroup")}: ${card.owner_group}`)
       owner.classList.add("qc-capability-owner")
       head.append(owner)
     }
     cardEl.append(head)
+
+    if (isCardText(card.canonical_repo) || isCardText(card.domain_authority)) {
+      const meta = document.createElement("p")
+      meta.style.cssText = "margin:0;font-size:10px;color:var(--qc-muted);"
+      meta.textContent = [card.canonical_repo, card.domain_authority].filter(isCardText).join(" · ")
+      cardEl.append(meta)
+    }
 
     if (isCardText(card.when_to_use)) {
       const use = document.createElement("p")

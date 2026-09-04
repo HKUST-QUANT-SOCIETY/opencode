@@ -3,8 +3,8 @@
  * 纯 DOM 构建（沿 settings-supplier / notifications 模式，bun test 兼容），
  * 状态切换由内部 render() 重绘；panels.tsx settings 分支挂载。
  *
- * 安全约束：私钥仅存在于密码型 input 的内存值里，连接尝试结束后随表单重绘丢弃；
- * 不写入 localStorage / 任何 store，也不回显。
+ * 安全约束：组件只接收本地 SSH Agent/Keychain identity id，不接收私钥文本；
+ * identity id 不写入 localStorage / 任何 store。
  */
 
 export type SshLoginStatus = "form" | "connecting" | "connected" | "error"
@@ -12,8 +12,8 @@ export type SshLoginStatus = "form" | "connecting" | "connected" | "error"
 export type SshConnectInput = {
   host: string
   user: string
-  /** 仅经表单内存传给后端（W3 ssh_status 元工具），UI 层绝不持久化 */
-  privateKey: string
+  /** Local SSH Agent/Keychain identity selected by the desktop bridge. */
+  identityId: string
   /** 连接过程中逐行追加日志 */
   log: (line: string) => void
 }
@@ -23,6 +23,14 @@ export type SshConnectResult =
   | { status: "error"; reason: string }
 
 export type SshConnectFn = (input: SshConnectInput) => Promise<SshConnectResult>
+
+export type SshIdentity = {
+  id: string
+  label: string
+  host: string
+  user: string
+  fingerprint?: string
+}
 
 /**
  * Isolated consumers keep a deterministic unavailable fallback. The production
@@ -45,18 +53,22 @@ export type SshLoginProps = {
   t: (key: string) => string
   /** 可注入的连接实现；默认 stub（见上） */
   connect?: SshConnectFn
+  /** Identities supplied by the local SSH Agent/Keychain bridge. */
+  identities?: SshIdentity[]
 }
 
 export function SshLoginView(props: SshLoginProps): HTMLElement {
   const t = props.t
   const connect = props.connect ?? stubSshConnect
+  const identities = props.identities ?? []
   const root = document.createElement("div")
   root.className = "qc-ssh"
   root.style.cssText = "display:grid;gap:10px;justify-items:start;"
 
   let status: SshLoginStatus = "form"
-  let host = ""
-  let user = ""
+  let identityId = identities[0]?.id ?? ""
+  let host = identities[0]?.host ?? ""
+  let user = identities[0]?.user ?? ""
   let fingerprint = ""
   let groups: string[] = []
   let reason = ""
@@ -68,62 +80,65 @@ export function SshLoginView(props: SshLoginProps): HTMLElement {
     if (logEl) logEl.textContent = logs.join("\n")
   }
 
-  // ponytail: 复用 qc-select-wide（select 样式）当输入框样式、qc-gate-actions 排按钮，免动 panels.css
-  const field = (id: string, labelKey: string, type?: string) => {
-    const label = document.createElement("label")
-    label.className = "qc-field-label"
-    label.htmlFor = id
-    label.textContent = t(labelKey)
-    const input = document.createElement("input")
-    input.id = id
-    input.className = "qc-select-wide"
-    input.autocomplete = "off"
-    input.spellcheck = false
-    if (type) input.type = type
-    return { label, input }
-  }
-
   const renderForm = () => {
-    const { label: hostLabel, input: hostInput } = field("qc-ssh-host", "quantcode.ssh.host")
-    hostInput.value = host
-    const { label: userLabel, input: userInput } = field("qc-ssh-user", "quantcode.ssh.user")
-    userInput.value = user
-    const { label: keyLabel, input: keyInput } = field("qc-ssh-key", "quantcode.ssh.privateKey", "password")
+    if (identities.length === 0) {
+      const status = document.createElement("span")
+      status.className = "qc-status qc-status-error"
+      status.textContent = t("quantcode.ssh.reason.unavailable")
+      const hint = document.createElement("p")
+      hint.className = "qc-ssh-hint"
+      hint.style.cssText = "margin:0;color:var(--qc-muted);font-size:10px;"
+      hint.textContent = "Connect with the local SSH Agent or Keychain identity provided by the desktop host."
+      root.replaceChildren(status, hint)
+      return
+    }
 
-    const hint = document.createElement("p")
-    hint.className = "qc-ssh-hint"
-    hint.style.cssText = "margin:0;color:var(--qc-muted);font-size:10px;"
-    hint.textContent = t("quantcode.ssh.privateKeyHint")
+    const identityLabel = document.createElement("label")
+    identityLabel.className = "qc-field-label"
+    identityLabel.htmlFor = "qc-ssh-identity"
+    identityLabel.textContent = "SSH identity"
+    const identitySelect = document.createElement("select")
+    identitySelect.id = "qc-ssh-identity"
+    identitySelect.className = "qc-select-wide"
+    for (const identity of identities) {
+      const option = document.createElement("option")
+      option.value = identity.id
+      option.textContent = identity.label
+      identitySelect.append(option)
+    }
+    identitySelect.value = identityId
+    identitySelect.addEventListener("change", () => {
+      identityId = identitySelect.value
+      const identity = identities.find((item) => item.id === identityId)
+      host = identity?.host ?? ""
+      user = identity?.user ?? ""
+    })
+
+    const target = document.createElement("code")
+    target.className = "qc-artifact"
+    target.textContent = `${user}@${host}`
 
     const submit = document.createElement("button")
     submit.type = "button"
     submit.className = "qc-button qc-button-primary"
     submit.textContent = t("quantcode.ssh.connect")
-    const syncDisabled = () => {
-      submit.disabled = !(hostInput.value.trim() && userInput.value.trim() && keyInput.value.trim())
-    }
-    syncDisabled()
-    for (const input of [hostInput, userInput, keyInput]) input.addEventListener("input", syncDisabled)
+    submit.disabled = !identityId
 
     submit.addEventListener("click", () => {
-      host = hostInput.value.trim()
-      user = userInput.value.trim()
-      const privateKey = keyInput.value
       status = "connecting"
       logs = [`ssh ${user}@${host}`, t("quantcode.ssh.logWaiting")]
       render()
-      void attempt(privateKey)
+      void attempt()
     })
 
     const actions = document.createElement("div")
     actions.className = "qc-gate-actions"
     actions.append(submit)
-    root.replaceChildren(hostLabel, hostInput, userLabel, userInput, keyLabel, keyInput, hint, actions)
+    root.replaceChildren(identityLabel, identitySelect, target, actions)
   }
 
-  const attempt = async (privateKey: string) => {
-    // privateKey 只在本函数作用域内存活，resolve 后即被丢弃
-    const result = await connect({ host, user, privateKey, log: appendLog }).catch(
+  const attempt = async () => {
+    const result = await connect({ host, user, identityId, log: appendLog }).catch(
       (): SshConnectResult => {
         // 合同外异常（注入实现 throw）按网络不可达处理
         return { status: "error", reason: "host_unreachable" }
@@ -213,7 +228,6 @@ export function SshLoginView(props: SshLoginProps): HTMLElement {
     retry.type = "button"
     retry.className = "qc-button qc-button-primary"
     retry.textContent = t("quantcode.ssh.retry")
-    // host/user 保留重填，私钥已随上次尝试丢弃，需重新输入
     retry.addEventListener("click", () => {
       status = "form"
       render()

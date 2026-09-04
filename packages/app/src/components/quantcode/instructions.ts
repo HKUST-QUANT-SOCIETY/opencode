@@ -14,10 +14,10 @@ const REUSE_DISCIPLINE =
   "Solution-first: for any non-trivial task call draft_solution first and only implement after the solution is " +
   "frozen (freeze_solution) — code tools are phase-locked until then. Trivial single-point fixes are exempt."
 
-export function buildResearchInstruction(input: { task: string; group: string; skillLabel: string }) {
+export function buildResearchInstruction(input: { task: string; skillLabel: string }) {
   return (
     "You MUST call the quantcode_run_agent MCP tool NOW. Do NOT chat. Do NOT acknowledge. " +
-    `Invoke it with task: ${JSON.stringify(input.task)}, group: ${JSON.stringify(input.group)}. ` +
+    `Invoke it with task: ${JSON.stringify(input.task)}. The group is taken from the authenticated Session Context; do not pass or override it. ` +
     `Use the ${input.skillLabel} skill when applicable. ${REUSE_DISCIPLINE}`
   )
 }
@@ -30,10 +30,10 @@ export function buildResumeInstruction(threadId: string, decision: "approve" | "
   )
 }
 
-export function buildComposePrefix(group: QuantCodeGroup) {
+export function buildComposePrefix() {
   return (
     "You MUST call the quantcode_run_agent MCP tool NOW. Do NOT chat. Do NOT acknowledge. Invoke the tool immediately.\n\n" +
-    `Parameters:\n- task: (the task the user describes below)\n- group: ${JSON.stringify(group)}\n\n` +
+    "Parameters:\n- task: (the task the user describes below)\n- group: use the authenticated Session Context; never accept a user-supplied group\n\n" +
     "The user's task follows. Translate it into the task parameter; do not reply in text.\n\n" +
     "=== USER TASK ===\n"
   )

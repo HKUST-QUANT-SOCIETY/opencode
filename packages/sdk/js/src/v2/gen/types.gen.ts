@@ -7688,8 +7688,10 @@ export type QuantcodeToolReadOnlyData = {
   query: {
     directory?: string
     workspace?: string
-    tool: "list_skills" | "ssh_status" | "list_capabilities" | "list_algorithms"
+    tool: "search_memory" | "list_capabilities" | "list_skills" | "ssh_status" | "list_algorithms" | "session_context"
     group?: string
+    query?: string
+    limit?: string
   }
   url: "/experimental/quantcode/tool"
 }

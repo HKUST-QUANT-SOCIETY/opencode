@@ -186,6 +186,13 @@ describe("experimental HttpApi", () => {
         expect(unavailable.status).toBe(200)
         expect(yield* json(unavailable)).toEqual({ error: "QuantCode MCP is not connected" })
 
+        const memoryUnavailable = yield* request(
+          `${ExperimentalPaths.quantcodeTool}?${new URLSearchParams({ tool: "search_memory", query: "factor" })}`,
+          directory,
+        )
+        expect(memoryUnavailable.status).toBe(200)
+        expect(yield* json(memoryUnavailable)).toEqual({ error: "QuantCode MCP is not connected" })
+
         const unsupported = yield* request(`${ExperimentalPaths.quantcodeTool}?tool=write_blackboard`, directory)
         expect(unsupported.status).toBe(400)
 

@@ -62,15 +62,19 @@ export const ToolListQuery = Schema.Struct({
 })
 
 const QuantCodeToolName = Schema.Union([
+  Schema.Literal("search_memory"),
+  Schema.Literal("list_capabilities"),
   Schema.Literal("list_skills"),
   Schema.Literal("ssh_status"),
-  Schema.Literal("list_capabilities"),
   Schema.Literal("list_algorithms"),
+  Schema.Literal("session_context"),
 ])
 export const QuantCodeToolQuery = Schema.Struct({
   ...WorkspaceRoutingQueryFields,
   tool: QuantCodeToolName,
   group: Schema.optional(Schema.String),
+  query: Schema.optional(Schema.String),
+  limit: Schema.optional(Schema.NumberFromString),
 })
 
 const WorktreeList = Schema.Array(Schema.String)

@@ -2,10 +2,10 @@ import { describe, expect, test } from "bun:test"
 import { isAdminRole, resolveRole } from "./roles"
 
 describe("QuantCode roles", () => {
-  test("risk / 风控 / lead identities map to approver", () => {
-    expect(resolveRole("risk-wang")).toBe("approver")
-    expect(resolveRole("风控负责人")).toBe("approver")
-    expect(resolveRole("Lead Zhang")).toBe("approver")
+  test("server-issued role values are preserved", () => {
+    expect(resolveRole("approver")).toBe("approver")
+    expect(resolveRole("admin")).toBe("admin")
+    expect(resolveRole("analyst")).toBe("analyst")
   })
 
   test("ordinary identities map to analyst", () => {
@@ -17,15 +17,15 @@ describe("QuantCode roles", () => {
     expect(resolveRole("")).toBe("analyst")
   })
 
-  test("admin / 管理员 / root identities map to admin (F-09 admin console visibility)", () => {
-    expect(resolveRole("admin-zhang")).toBe("admin")
-    expect(resolveRole("管理员")).toBe("admin")
-    expect(resolveRole("root")).toBe("admin")
-    expect(isAdminRole("admin-zhang")).toBe(true)
+  test("identity labels cannot escalate to admin", () => {
+    expect(resolveRole("admin-zhang")).toBe("analyst")
+    expect(resolveRole("管理员")).toBe("analyst")
+    expect(resolveRole("root")).toBe("analyst")
+    expect(isAdminRole("admin-zhang")).toBe(false)
   })
 
   test("approver and analyst identities are not admin", () => {
-    expect(isAdminRole("risk-wang")).toBe(false)
+    expect(isAdminRole("approver")).toBe(false)
     expect(isAdminRole("researcher-chen")).toBe(false)
     expect(isAdminRole("")).toBe(false)
   })
