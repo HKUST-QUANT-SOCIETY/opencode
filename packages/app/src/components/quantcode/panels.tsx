@@ -61,9 +61,9 @@ const [_sessionId, setSessionId] = createSignal<string | undefined>(undefined)
 
 let activeThreadCacheKey: string | undefined
 
-function scopedThreadCacheKey(context: { actor_id?: string; group: string; workspace_id?: string }) {
+function scopedThreadCacheKey(context: { actor_id?: string; group: string; workspace_id?: string }, serverKey: string) {
   if (!context.actor_id) return
-  const scope = [context.actor_id, context.group, context.workspace_id ?? ""].join(":")
+  const scope = [serverKey, context.actor_id, context.group, context.workspace_id ?? ""].join(":")
   return `quantcode:thread_cache:${encodeURIComponent(scope)}`
 }
 
@@ -505,10 +505,10 @@ function SettingsPanel(props: {
         <div>
           <span class="qc-section-label">SSH IDENTITY</span>
           <strong>{props.sessionActor}</strong> <span class="qc-status">{props.sessionRole}</span>
-          <p>身份名称保存在本机；服务器认证由 OpenCode 连接配置管理。</p>
+          <p>身份和组由服务端认证会话绑定；服务可达不代表 SSH 已认证。</p>
         </div>
-        <span class="qc-connection-pill" classList={{ "is-disconnected": !props.serverReady }}>
-          <i /> {props.serverReady ? "已连接" : "未连接"}
+        <span class="qc-connection-pill" classList={{ "is-disconnected": props.sessionStatus !== "ready" }}>
+          <i /> {props.sessionStatus === "ready" ? "会话已认证" : "未认证"}
         </span>
       </div>
       <div class="qc-setting-row">
@@ -619,9 +619,19 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
   onCleanup(() => setQuantCodeTraceListener(null))
 
   let skillsRequest = 0
-  onMount(() => {
-    void getQuantCodeSessionContext(serverSDK().client).then(
+  createEffect(() => {
+    const client = serverSDK().client
+    const serverKey = String(server.key)
+    let cancelled = false
+    onCleanup(() => { cancelled = true })
+    activeThreadCacheKey = undefined
+    setSessionId(undefined)
+    lastResultJson = undefined
+    resetQuantCodeState()
+    setState({ sessionStatus: "loading", sessionRole: "未连接", sessionActor: "未连接", skills: [], skill: "" })
+    void getQuantCodeSessionContext(client).then(
       (context) => {
+        if (cancelled) return
         const group = context.group
         if (!group || !QUANTCODE_GROUPS.includes(group as QuantCodeGroup)) {
           activeThreadCacheKey = undefined
@@ -629,13 +639,14 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
           setState({ sessionStatus: "error", sessionRole: "身份组无效", sessionActor: "未连接", skillsStatus: "error", skill: "" })
           return
         }
-        activeThreadCacheKey = scopedThreadCacheKey({ ...context, group })
+        activeThreadCacheKey = scopedThreadCacheKey({ ...context, group }, serverKey)
         resetQuantCodeState()
         if (activeThreadCacheKey) loadScopedThreadCache(activeThreadCacheKey)
         setQuantCodeSessionGroup(group)
         setState({ sessionStatus: "ready", sessionRole: context.role ?? "analyst", sessionActor: context.actor_id ?? "已认证身份" })
       },
       () => {
+        if (cancelled) return
         activeThreadCacheKey = undefined
         resetQuantCodeState()
         setState({ sessionStatus: "error", sessionRole: "身份接线未完成", sessionActor: "未连接", skillsStatus: "error", skill: "" })
@@ -647,6 +658,7 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
     const group = _group()
     if (state.sessionStatus !== "ready") return
     const request = ++skillsRequest
+    onCleanup(() => { skillsRequest++ })
     setState({ skillsStatus: "loading", skills: [], skill: "" })
     void listQuantCodeSkills(serverSDK().client, group).then(
       (skills) => {
@@ -793,7 +805,8 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
             },
           ],
         })
-        .then(() => {
+        .then((response) => {
+          if (response.error) throw new Error("Gate resume request failed")
           showToast({ title: language.t("quantcode.gate.resumeSent"), variant: "success" })
           setState({ view: "activity", submit: "submitted" })
         })
@@ -882,7 +895,7 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
               return bell
             })()}
           </Show>
-          <For each={adminViewable() ? [...navItems, ...adminNavItems] : navItems}>
+          <For each={[...navItems, ...adminNavItems.filter((item) => item.id === "gitgraph" ? state.sessionStatus === "ready" : adminViewable())]}>
             {(item) => (
               <button
                 type="button"
@@ -980,12 +993,12 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
               </button>
               <button type="button" class="qc-lens-meta-row" onClick={() => setState("view", "settings")}>
                 <span>组:</span>
-                <strong>{_group()}</strong>
+                <strong>{state.sessionStatus === "ready" ? _group() : "未认证"}</strong>
                 <small>· {selectedSkillLabel()}</small>
                 <Icon name="chevron-down" size="small" />
               </button>
               <button type="button" class="qc-lens-meta-row" onClick={() => setState("view", "settings")}>
-                <span>SSH:</span>
+                <span>服务:</span>
                 <strong>{serverName()}</strong>
                 <small>{serverReady() ? "已连接" : "未连接"}</small>
                 <Icon name="chevron-down" size="small" />
@@ -1188,7 +1201,7 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
                     onOpenGitgraph={() => setState("view", "gitgraph")}
                   />
                 </Match>
-                <Match when={state.view === "gitgraph" && adminViewable()}>
+                <Match when={state.view === "gitgraph" && state.sessionStatus === "ready"}>
                   <GitGraphPanelView
                     t={language.t as (key: string) => string}
                     run={_trace()}

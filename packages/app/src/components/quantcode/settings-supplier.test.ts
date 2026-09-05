@@ -2,10 +2,10 @@ import { describe, expect, test } from "bun:test"
 import { SupplierView } from "./settings-supplier"
 
 describe("SupplierView", () => {
-  test("renders default provider/model/baseURL when props omitted", () => {
+  test("does not invent provider/model/baseURL when runtime configuration is absent", () => {
     const el = SupplierView({})
     const values = [...el.querySelectorAll(".qc-supplier-row strong")].map((n) => n.textContent)
-    expect(values).toEqual(["deepseek", "deepseek-chat", "https://api.deepseek.com/v1"])
+    expect(values).toEqual(["未读取", "未读取", "未读取"])
     el.remove()
   })
 

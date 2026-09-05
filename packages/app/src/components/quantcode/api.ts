@@ -84,13 +84,17 @@ export async function readQuantCodeTool(
     ...(params?.query ? { query: params.query } : {}),
     ...(params?.limit ? { limit: String(params.limit) } : {}),
   })
+  if (response.error || response.data === undefined || response.data === null) {
+    throw new Error("QuantCode read-only service is unavailable")
+  }
   return response.data
 }
 
 export async function listQuantCodeSkills(client: OpencodeClient, group: string) {
   const result = (await readQuantCodeTool(client, "list_skills", group)) as QuantCodeSkillsResult | undefined
   if (result?.error) throw new Error(result.error)
-  return result?.skills?.filter((skill) => typeof skill.id === "string" && skill.id.trim()) ?? []
+  if (!Array.isArray(result?.skills)) throw new Error("Invalid QuantCode skills response")
+  return result.skills.filter((skill) => typeof skill?.id === "string" && skill.id.trim())
 }
 
 export async function searchQuantCodeMemory(client: OpencodeClient, query: string, limit = 10) {
@@ -99,6 +103,7 @@ export async function searchQuantCodeMemory(client: OpencodeClient, query: strin
     | undefined
   if (result?.error && result.status === "UNAVAILABLE") return null
   if (result?.error) throw new Error(result.error)
+  if (!Array.isArray(result?.hits)) throw new Error("Invalid QuantCode memory response")
   return {
     hits: (result?.hits ?? []).map((hit) => ({
       id: hit.path,
@@ -113,13 +118,15 @@ export async function searchQuantCodeMemory(client: OpencodeClient, query: strin
 export async function listQuantCodeAlgorithms(client: OpencodeClient) {
   const result = (await readQuantCodeTool(client, "list_algorithms")) as QuantCodeAlgorithmsResult | undefined
   if (result?.error) throw new Error(result.error)
-  return result?.algorithms?.filter((algorithm) => typeof algorithm.id === "string" && algorithm.id.trim()) ?? []
+  if (!Array.isArray(result?.algorithms)) throw new Error("Invalid QuantCode algorithms response")
+  return result.algorithms.filter((algorithm) => typeof algorithm?.id === "string" && algorithm.id.trim())
 }
 
 export async function listQuantCodeCapabilities(client: OpencodeClient) {
   const result = (await readQuantCodeTool(client, "list_capabilities")) as QuantCodeCapabilitiesResult | undefined
   if (result?.error) throw new Error(result.error)
-  return result?.capabilities ?? []
+  if (!Array.isArray(result?.capabilities)) throw new Error("Invalid QuantCode capabilities response")
+  return result.capabilities
 }
 
 export async function getQuantCodeSessionContext(client: OpencodeClient) {

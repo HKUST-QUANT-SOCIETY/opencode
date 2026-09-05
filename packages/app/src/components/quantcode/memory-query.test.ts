@@ -105,3 +105,37 @@ describe("MemoryQueryView", () => {
     view.remove()
   })
 })
+
+test("search preserves focus and an edited draft while a request is pending", async () => {
+  const pending = Promise.withResolvers<{ hits: MemoryHit[] }>()
+  const view = mount(() => pending.promise)
+  const input = view.querySelector<HTMLInputElement>("input")!
+  input.focus()
+  await search(view, "original")
+  expect(view.querySelector("input")).toBe(input)
+  expect(document.activeElement).toBe(input)
+  input.value = "next query"
+  input.dispatchEvent(new Event("input"))
+  pending.resolve({ hits: [HIT] })
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  expect(input.value).toBe("next query")
+  expect(document.activeElement).toBe(input)
+  expect(view.querySelector<HTMLButtonElement>("button")!.disabled).toBe(false)
+  expect(view.querySelector(".qc-memory-pending")).toBeNull()
+  view.remove()
+})
+
+test("out-of-order requests with the same query only display the latest result", async () => {
+  const first = Promise.withResolvers<{ hits: MemoryHit[] }>()
+  const second = Promise.withResolvers<{ hits: MemoryHit[] }>()
+  let calls = 0
+  const view = mount(() => (++calls === 1 ? first.promise : second.promise))
+  await search(view, "same")
+  view.querySelector("input")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }))
+  second.resolve({ hits: [{ title: "latest" }] })
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  first.resolve({ hits: [{ title: "stale" }] })
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  expect(view.querySelector(".qc-memory-hit-row strong")?.textContent).toBe("latest")
+  view.remove()
+})

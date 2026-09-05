@@ -3,8 +3,7 @@
  * 与 factor-screen 相同的 bun test 兼容策略；panels.tsx 中作为 JSX 子节点插入。
  *
  * 左侧：证据时间线（output_data.documents，published_at > as_of_date → 红色契约告警）。
- * 右侧：DCF 估值卡（fair_value_per_share 大数字 + wacc/growth/terminal_growth
- * 滑条重算 + 乐观/悲观 ±20% 区间条），公式与 tools/fundamental/dcf_valuation.py 同式。
+ * 右侧：只读展示组件返回的估值、方法、来源和状态；不在前端计算领域结果。
  */
 import { QcBigNumber } from "./metric-cards"
 import type { RunAgentResult } from "./result-contract"
@@ -41,24 +40,6 @@ export function pitDocuments(run: RunAgentResult | null): PitDoc[] {
   }
   return docs.sort((a, b) => (a.publishedAt < b.publishedAt ? 1 : a.publishedAt > b.publishedAt ? -1 : b.score - a.score))
 }
-
-/** Gordon DCF 重算（与 dcf_valuation.py 同式），返回每股公允价值。 */
-export function dcfRecompute(fcf: number, growth: number, wacc: number, terminal: number, years = 5, shares = 800) {
-  if (!Number.isFinite(fcf) || fcf <= 0 || wacc <= terminal || wacc <= 0) return 0
-  let value = fcf
-  let pv = 0
-  for (let t = 1; t <= years; t++) {
-    value *= 1 + growth
-    pv += value / (1 + wacc) ** t
-  }
-  return (pv + (value * (1 + terminal)) / (wacc - terminal) / (1 + wacc) ** years) / shares
-}
-
-const PARAMS = [
-  { key: "wacc", label: "WACC", min: 0.02, max: 0.3, step: 0.005, value: 0.1 },
-  { key: "growth_rate", label: "增长率", min: -0.05, max: 0.3, step: 0.005, value: 0.08 },
-  { key: "terminal_growth", label: "永续增长", min: -0.02, max: 0.06, step: 0.002, value: 0.03 },
-] as const
 
 function emptyNote(text: string) {
   const empty = document.createElement("div")
@@ -117,68 +98,34 @@ export function PitValuationView(props: { run: RunAgentResult | null }): HTMLEle
   dcfLabel.textContent = "DCF 估值"
   dcf.append(dcfLabel)
   const output = props.run?.output_data ?? {}
-  const fcf = typeof output.fcf_ttm === "number" ? output.fcf_ttm : 0
-  const base = typeof output.fair_value_per_share === "number" ? output.fair_value_per_share : 0
+  const base = typeof output.fair_value_per_share === "number" && Number.isFinite(output.fair_value_per_share)
+    ? output.fair_value_per_share : undefined
   const cardGrid = document.createElement("div")
   cardGrid.className = "qc-metrics-body"
-  cardGrid.append(QcBigNumber({ label: "每股公允价值", value: base ? base.toFixed(2) : "—", tone: "ink" }))
+  cardGrid.append(QcBigNumber({ label: "每股公允价值", value: base === undefined ? "—" : base.toFixed(2), tone: "ink" }))
   dcf.append(cardGrid)
-  const range = document.createElement("div")
-  range.className = "qc-pit-range"
-  const rangeBar = document.createElement("div")
-  rangeBar.className = "qc-pit-range-bar"
-  const fill = document.createElement("i")
-  fill.style.left = "40%"
-  fill.style.width = "20%"
-  rangeBar.append(fill)
-  const rangeText = document.createElement("code")
-  const paint = (fv: number) => {
-    const low = fv * 0.8
-    const high = fv * 1.2
-    rangeText.textContent = `悲观 ${low.toFixed(2)} — 乐观 ${high.toFixed(2)}`
-    const span = Math.max(high, fv * 1.201) || 1
-    fill.style.left = `${(low / span) * 100}%`
-    fill.style.width = `${((high - low) / span) * 100}%`
-  }
-  range.append(rangeBar, rangeText)
-  dcf.append(range)
+  if (base === undefined) dcf.append(emptyNote("尚无组件估值结果，请运行已授权的估值组件。"))
 
-  const params = PARAMS.map((p) => ({ ...p, value: typeof output[p.key] === "number" ? (output[p.key] as number) : p.value }))
-  const compute = () =>
-    dcfRecompute(fcf, params[1]!.value, params[0]!.value, params[2]!.value)
-  const live = document.createElement("code")
-  live.className = "qc-pit-live"
-  if (!fcf) {
-    dcf.append(emptyNote("缺少 fcf_ttm，滑条重算不可用。"))
-  } else {
-    live.textContent = `重算 ${compute().toFixed(2)}`
-    dcf.append(live)
-    const fcfLabel = document.createElement("small")
-    fcfLabel.textContent = `FCF TTM ${fcf.toFixed(1)}`
-    dcf.append(fcfLabel)
-    for (const param of params) {
-      const field = document.createElement("label")
-      field.className = "qc-pit-param"
-      const name = document.createElement("span")
-      name.textContent = `${param.label} ${(param.value * 100).toFixed(1)}%`
-      const input = document.createElement("input")
-      input.type = "range"
-      input.min = String(param.min)
-      input.max = String(param.max)
-      input.step = String(param.step)
-      input.value = String(param.value)
-      input.addEventListener("input", () => {
-        param.value = Number(input.value)
-        name.textContent = `${param.label} ${(param.value * 100).toFixed(1)}%`
-        const fv = compute()
-        live.textContent = `重算 ${fv.toFixed(2)}`
-        paint(fv)
-      })
-      field.append(name, input)
-      dcf.append(field)
-    }
-    paint(compute())
+  const provenance = document.createElement("dl")
+  provenance.className = "qc-pit-provenance"
+  for (const [label, value] of [
+    ["结果状态", output.result_status ?? output.status ?? props.run?.status],
+    ["来源", output.source ?? output.backend],
+    ["估值方法", output.method],
+    ["数据时点", output.as_of_date],
+    ["契约版本", output.contract_version ?? output.schema_version],
+  ]) {
+    const term = document.createElement("dt")
+    const detail = document.createElement("dd")
+    term.textContent = String(label)
+    detail.textContent = typeof value === "string" && value ? value : "未提供"
+    provenance.append(term, detail)
   }
+  dcf.append(provenance)
+  const note = document.createElement("p")
+  note.className = "qc-metrics-empty"
+  note.textContent = "估值与情景区间以领域组件返回值为准。调整假设需重新运行组件。"
+  dcf.append(note)
 
   if (props.run?.artifacts?.length) {
     const artifact = document.createElement("code")

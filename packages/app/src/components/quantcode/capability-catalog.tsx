@@ -26,6 +26,8 @@ export type CapabilityCard = {
   consumed_by?: string[]
   deprecated_aliases?: string[]
   observed_at?: string
+  inputs?: string[]
+  outputs?: string[]
 }
 
 export type CapabilityFetcher = () => Promise<CapabilityCard[] | null>
@@ -82,7 +84,7 @@ export function CapabilityCatalogView(props: CapabilityCatalogProps): HTMLElemen
 
   const matches = (card: CapabilityCard) => {
     if (!query) return true
-    const haystack = [card.name, card.type, card.owner_group, card.when_to_use, card.when_not_to_reinvent, ...(card.api_surface ?? [])]
+    const haystack = [card.id, card.name, card.canonical_repo, card.type, card.owner_group, card.when_to_use, card.when_not_to_reinvent, ...(card.api_surface ?? []), ...(card.deprecated_aliases ?? []), ...(card.inputs ?? []), ...(card.outputs ?? []), ...(card.depends_on ?? []), ...(card.consumed_by ?? [])]
       .filter(isCardText)
       .join("\n")
       .toLowerCase()
@@ -158,6 +160,26 @@ export function CapabilityCatalogView(props: CapabilityCatalogProps): HTMLElemen
         cardEl.append(code)
       }
     }
+
+    const contracts = document.createElement("dl")
+    contracts.className = "qc-result-provenance"
+    for (const key of ["inputs", "outputs", "depends_on", "consumed_by", "deprecated_aliases"] as const) {
+      const values = card[key]?.filter(isCardText)
+      if (!values?.length) continue
+      const label = document.createElement("dt")
+      label.textContent = key
+      const value = document.createElement("dd")
+      value.textContent = values.join(" · ")
+      contracts.append(label, value)
+    }
+    if (isCardText(card.observed_at)) {
+      const label = document.createElement("dt")
+      label.textContent = "observed_at"
+      const value = document.createElement("dd")
+      value.textContent = card.observed_at
+      contracts.append(label, value)
+    }
+    if (contracts.childElementCount) cardEl.append(contracts)
 
     if (isCardText(card.source_commit)) {
       const commit = document.createElement("code")

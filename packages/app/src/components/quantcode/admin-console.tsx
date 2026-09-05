@@ -39,9 +39,31 @@ export function adminToolResultEvents(events: TraceEvent[] | undefined, tool: st
     const name = event.data?.tool ?? event.data?.tool_name
     if (name !== tool) continue
     const parsed = parseAdminToolResultJson(event.data?.result)
-    if (parsed) payloads.push(parsed)
+    payloads.push(parsed ?? { status: "UNAVAILABLE", error: "Malformed or truncated tool response" })
   }
   return payloads
+}
+
+/** Preserve service failures and provenance instead of rendering them as empty success. */
+export function adminToolStatusView(events: TraceEvent[] | undefined, tools: string[]): HTMLElement {
+  const root = document.createElement("div")
+  root.className = "qc-service-status"
+  root.setAttribute("role", "status")
+  for (const tool of tools) {
+    const payload = adminToolResultEvents(events, tool).at(-1)
+    if (!isRecord(payload)) continue
+    const status = payload.sync_status ?? payload.status
+    const errors = [payload.error, ...(Array.isArray(payload.errors) ? payload.errors : [])]
+      .filter((value): value is string => typeof value === "string" && !!value)
+    const meta = [status, payload.visibility_source, payload.observed_at]
+      .filter((value): value is string => typeof value === "string" && !!value)
+    if (!meta.length && !errors.length && payload.ok !== false) continue
+    const row = document.createElement("p")
+    row.className = errors.length || payload.ok === false ? "qc-status-error" : "qc-muted"
+    row.textContent = [tool, ...meta, ...errors].join(" · ")
+    root.append(row)
+  }
+  return root
 }
 
 /** 载荷 → 记录列表：裸数组 / {runs|repos|errors|updates|packages:[…]} 二者皆收，防御截断与畸形项。 */
@@ -106,22 +128,21 @@ export function runsFromPayload(payload: unknown): AdminRunRecord[] {
     records.push({
       thread_id: pickString(item, ["thread_id", "threadId"]),
       group: pickString(item, ["group", "group_name", "owner_group"]),
-      user: pickString(item, ["user", "owner", "identity", "member"]),
+      user: pickString(item, ["actor_id", "user", "owner", "identity", "member"]),
       status: pickString(item, ["status", "state"]),
       task: pickString(item, ["task", "title"]),
-      timestamp: toEpochMs(item.timestamp ?? item.pushed_at ?? item.updated_at),
+      timestamp: toEpochMs(item.ts ?? item.timestamp ?? item.pushed_at ?? item.updated_at),
     })
   }
   return records
 }
 
 export function runsFromTrace(events: TraceEvent[] | undefined): AdminRunRecord[] {
-  const records: AdminRunRecord[] = []
-  for (const payload of adminToolResultEvents(events, "admin_list_runs")) {
-    records.push(...runsFromPayload(payload))
-  }
-  return records
-}export type AdminGroupSummary = {
+  return runsFromPayload(adminToolResultEvents(events, "admin_list_runs").at(-1))
+    .sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0))
+}
+
+export type AdminGroupSummary = {
   group: string
   users: { user: string; runs: AdminRunRecord[] }[]
   total: number
@@ -176,21 +197,18 @@ export function errorsFromPayload(payload: unknown): AdminErrorRecord[] {
     records.push({
       thread_id: pickString(item, ["thread_id", "threadId", "run_id"]),
       group: pickString(item, ["group", "group_name", "owner_group"]),
-      user: pickString(item, ["user", "owner", "identity", "member"]),
+      user: pickString(item, ["actor_id", "user", "owner", "identity", "member"]),
       type: pickString(item, ["type", "kind", "error_type", "category"]),
       message: pickString(item, ["message", "error", "detail", "summary"]),
-      timestamp: toEpochMs(item.timestamp ?? item.time ?? item.created_at),
+      timestamp: toEpochMs(item.ts ?? item.timestamp ?? item.time ?? item.created_at),
     })
   }
   return records
 }
 
 export function errorsFromTrace(events: TraceEvent[] | undefined): AdminErrorRecord[] {
-  const records: AdminErrorRecord[] = []
-  for (const payload of adminToolResultEvents(events, "admin_errors")) {
-    records.push(...errorsFromPayload(payload))
-  }
-  return records
+  return errorsFromPayload(adminToolResultEvents(events, "admin_errors").at(-1))
+    .sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0))
 }
 
 // ---------------------------------------------------------------------------
@@ -406,7 +424,7 @@ export function AdminConsoleView(props: AdminConsoleProps): HTMLElement {
       details.append(line)
 
       for (const entry of summary.users) {
-        const latest = entry.runs[0]
+        for (const latest of entry.runs) {
         const row = document.createElement("div")
         row.className = "qc-admin-user-row"
         row.style.cssText = "display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:10px;padding:9px 0;border-top:1px solid rgba(18,18,18,0.09);"
@@ -425,6 +443,7 @@ export function AdminConsoleView(props: AdminConsoleProps): HTMLElement {
         time.textContent = relativeTimeLabel(latest?.timestamp)
         row.append(time)
         details.append(row)
+        }
       }
       wrap.append(details)
     }
@@ -442,7 +461,9 @@ export function AdminConsoleView(props: AdminConsoleProps): HTMLElement {
     if (records.length === 0) {
       const hint = document.createElement("p")
       hint.style.cssText = "margin:0;font-size:11px;color:var(--qc-muted);"
-      hint.textContent = sent ? t("quantcode.admin.waiting") : t("quantcode.admin.errorsEmpty")
+      const latest = adminToolResultEvents(props.run?.execution_trace, "admin_errors").at(-1)
+      const verifiedEmpty = isRecord(latest) && !latest.error && latest.ok !== false && Array.isArray(latest.errors)
+      hint.textContent = verifiedEmpty ? t("quantcode.admin.errorsEmpty") : t("quantcode.admin.empty")
       wrap.append(hint)
       return wrap
     }
@@ -505,7 +526,7 @@ export function AdminConsoleView(props: AdminConsoleProps): HTMLElement {
 
   const render = () => {
     root.replaceChildren()
-    root.append(intro, renderEntryRow(), renderComposer())
+    root.append(intro, renderEntryRow(), renderComposer(), adminToolStatusView(props.run?.execution_trace, ["admin_list_runs", "admin_errors"]))
     const note = renderSentNote()
     if (note) root.append(note)
     const hasData = runs().length > 0 || errors().length > 0

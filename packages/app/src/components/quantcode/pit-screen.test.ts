@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { PitValuationView, dcfRecompute, pitDocuments } from "./pit-screen"
+import { PitValuationView, pitDocuments } from "./pit-screen"
 import type { RunAgentResult } from "./result-contract"
 
 function pitRun(overrides: Partial<RunAgentResult> = {}): RunAgentResult {
@@ -49,30 +49,33 @@ describe("PitValuationView", () => {
     const card = el.querySelector(".qc-metric")!
     expect(card.querySelector(".qc-metric-label")?.textContent).toBe("每股公允价值")
     expect(card.querySelector(".qc-metric-value")?.textContent).toBe("1.90")
-    const range = el.querySelector(".qc-pit-range code")?.textContent ?? ""
-    // 区间条跟随重算后的公允价值（1.90 ± 20%，与后端 fair_value_per_share 一致）
-    expect(range).toContain("悲观 1.52")
-    expect(range).toContain("乐观 2.28")
+    expect(el.querySelector(".qc-pit-range")).toBeNull()
+    expect(el.querySelectorAll('input[type="range"]')).toHaveLength(0)
     el.remove()
   })
 
-  test("sliders recompute fair value with the shared Gordon formula", () => {
-    // 与 dcf_valuation.py 同式：5 年显式期 + 永续增长，equity/shares
-    expect(dcfRecompute(100, 0.1, 0.12, 0.03)).toBeCloseTo(1.8996, 3)
-    expect(dcfRecompute(0, 0.1, 0.12, 0.03)).toBe(0)
-    expect(dcfRecompute(100, 0.1, 0.03, 0.03)).toBe(0) // wacc <= terminal_growth → 无效
-    const el = PitValuationView({ run: pitRun() })
-    const inputs = [...el.querySelectorAll<HTMLInputElement>(".qc-pit-param input")]
-    expect(inputs.length).toBe(3)
-    expect(inputs.map((i) => Number(i.value))).toEqual([0.12, 0.1, 0.03])
-    // 滑条初始值取自 output_data，重算值与后端 gordon 公式一致
-    expect(el.querySelector(".qc-pit-live")?.textContent).toBe(`重算 ${dcfRecompute(100, 0.1, 0.12, 0.03).toFixed(2)}`)
+  test("FCF alone cannot manufacture valuation or scenario bounds", () => {
+    const el = PitValuationView({ run: pitRun({ output_data: { fcf_ttm: 100 } }) })
+    expect(el.querySelector(".qc-metric-value")?.textContent).toBe("—")
+    expect(el.querySelectorAll('input[type="range"]')).toHaveLength(0)
+    expect(el.textContent).not.toContain("悲观")
+    el.remove()
+  })
+
+  test("zero valuation and component provenance remain explicit", () => {
+    const el = PitValuationView({ run: pitRun({ output_data: {
+      fair_value_per_share: 0, source: "fixture", method: "gordon_dcf_stub", result_status: "STAGING",
+    } }) })
+    expect(el.querySelector(".qc-metric-value")?.textContent).toBe("0.00")
+    expect(el.textContent).toContain("gordon_dcf_stub")
+    expect(el.textContent).toContain("STAGING")
+    expect(el.textContent).toContain("fixture")
     el.remove()
   })
 
   test("empty run shows both empty notes and no params", () => {
     const el = PitValuationView({ run: null })
-    expect(el.querySelectorAll(".qc-metrics-empty").length).toBe(2)
+    expect(el.querySelectorAll(".qc-empty-state").length).toBe(2)
     expect(el.querySelectorAll(".qc-pit-param").length).toBe(0)
     expect(el.querySelector(".qc-metric-value")?.textContent).toBe("—")
     el.remove()
@@ -88,7 +91,7 @@ describe("PitValuationView", () => {
     expect(el.textContent).toContain("artifact://pit/valuation.json")
     // gate reason 不崩
     expect(el.querySelectorAll(".qc-pit-card").length).toBe(2)
-    expect(el.querySelectorAll(".qc-pit-param").length).toBe(3)
+    expect(el.querySelectorAll(".qc-pit-param").length).toBe(0)
     expect(el.textContent).not.toContain("undefined")
     el.remove()
   })

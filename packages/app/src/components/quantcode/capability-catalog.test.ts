@@ -133,3 +133,23 @@ describe("CapabilityCatalogView", () => {
     view.remove()
   })
 })
+
+
+test("reuse metadata is visible and canonical aliases are searchable", () => {
+  const view = mount({ run: traceRun(JSON.stringify([{ ...CARD,
+    inputs: ["FactorBatch", "LabelBundle"], outputs: ["EvaluationArtifact"],
+    depends_on: ["data-access"], consumed_by: ["factor-assets"],
+    deprecated_aliases: ["AutoFactorEvaluation"], observed_at: "2026-09-05",
+  }])) })
+  expect(view.textContent).toContain("LabelBundle")
+  expect(view.textContent).toContain("EvaluationArtifact")
+  expect(view.textContent).toContain("data-access")
+  expect(view.textContent).toContain("2026-09-05")
+  const input = view.querySelector<HTMLInputElement>("input")!
+  for (const query of ["AutoFactorEvaluation", "quant_evaluator", "factor-assets"]) {
+    input.value = query
+    input.dispatchEvent(new Event("input"))
+    expect(view.querySelectorAll(".qc-capability-card")).toHaveLength(1)
+  }
+  view.remove()
+})

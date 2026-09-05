@@ -11,6 +11,7 @@
 import type { TraceEvent } from "./result-contract"
 import {
   adminToolResultEvents,
+  adminToolStatusView,
   isRecord,
   listFromPayload,
   relativeTimeLabel,
@@ -49,7 +50,8 @@ export function reposFromPayload(payload: unknown): RepoNode[] {
       group: pickString(item, ["group", "group_name", "owner_group"]),
       language: pickString(item, ["language", "lang", "primary_language"]),
       default_branch: pickString(item, ["default_branch", "branch"]),
-      commit: pickString(item, ["last_commit_message", "commit_message", "last_commit", "commit_summary", "commit"]),
+      commit: (isRecord(item.latest_commit) ? pickString(item.latest_commit, ["message"]) : undefined)
+        ?? pickString(item, ["last_commit_message", "commit_message", "last_commit", "commit_summary", "commit"]),
       pushed_at: toEpochMs(item.pushed_at ?? item.last_push ?? item.updated_at ?? item.timestamp),
     })
   }
@@ -57,16 +59,13 @@ export function reposFromPayload(payload: unknown): RepoNode[] {
 }
 
 export function reposFromTrace(events: TraceEvent[] | undefined): RepoNode[] {
-  const nodes: RepoNode[] = []
-  for (const payload of adminToolResultEvents(events, "admin_repo_status")) {
-    nodes.push(...reposFromPayload(payload))
-  }
-  return nodes
+  return reposFromPayload(adminToolResultEvents(events, "admin_repo_status").at(-1))
 }export type PackageUpdate = {
   repo?: string
   name?: string
   current?: string
   latest?: string
+  change?: string
 }
 
 /** admin_package_updates 载荷 → 依赖更新清单（{updates:[…]} / {packages:[…]} 或裸数组）。 */
@@ -75,6 +74,16 @@ export function packagesFromPayload(payload: unknown): PackageUpdate[] {
   const updates: PackageUpdate[] = []
   for (const item of list) {
     if (!isRecord(item)) continue
+    if (Array.isArray(item.files)) {
+      for (const file of item.files.filter(isRecord)) {
+        updates.push({
+          repo: pickString(item, ["repo"]),
+          name: pickString(file, ["file"]),
+          change: pickString(file, ["message"]),
+        })
+      }
+      continue
+    }
     updates.push({
       repo: pickString(item, ["repo", "repo_name"]),
       name: pickString(item, ["name", "package", "package_name", "dependency"]),
@@ -86,11 +95,7 @@ export function packagesFromPayload(payload: unknown): PackageUpdate[] {
 }
 
 export function packagesFromTrace(events: TraceEvent[] | undefined): PackageUpdate[] {
-  const updates: PackageUpdate[] = []
-  for (const payload of adminToolResultEvents(events, "admin_package_updates")) {
-    updates.push(...packagesFromPayload(payload))
-  }
-  return updates
+  return packagesFromPayload(adminToolResultEvents(events, "admin_package_updates").at(-1))
 }
 
 /** 有更新判定：pushed_at 距今 ≤ thresholdMs（缺 pushed_at = 无从判定 = false）。 */
@@ -341,7 +346,9 @@ export function GitGraphPanelView(props: GitGraphPanelProps): HTMLElement {
     if (list.length === 0) {
       const hint = document.createElement("p")
       hint.style.cssText = "margin:0;font-size:11px;color:var(--qc-muted);"
-      hint.textContent = lastCheckedAt === undefined ? t("quantcode.gitgraph.empty") : t("quantcode.gitgraph.packagesEmpty")
+      const latest = adminToolResultEvents(props.run?.execution_trace, "admin_package_updates").at(-1)
+      const verifiedEmpty = isRecord(latest) && latest.sync_status === "CONNECTED" && Array.isArray(latest.updates)
+      hint.textContent = verifiedEmpty ? t("quantcode.gitgraph.packagesEmpty") : t("quantcode.gitgraph.empty")
       wrap.append(hint)
       return wrap
     }
@@ -353,6 +360,11 @@ export function GitGraphPanelView(props: GitGraphPanelProps): HTMLElement {
       name.style.cssText = "font-size:11px;"
       name.textContent = update.name ?? "—"
       row.append(name, chip(t("quantcode.gitgraph.package"), "qc-status-waiting_for_human"))
+      if (update.change) {
+        const change = document.createElement("span")
+        change.textContent = update.change
+        row.append(change)
+      }
       if (update.current || update.latest) {
         const versions = document.createElement("code")
         versions.className = "qc-artifact"
@@ -373,7 +385,7 @@ export function GitGraphPanelView(props: GitGraphPanelProps): HTMLElement {
 
   const render = () => {
     root.replaceChildren()
-    root.append(intro, renderToolbar())
+    root.append(intro, renderToolbar(), adminToolStatusView(props.run?.execution_trace, ["admin_repo_status", "admin_package_updates"]))
     const hasData = repos().length > 0 || updates().length > 0
     if (!hasData && lastCheckedAt === undefined) {
       const empty = document.createElement("div")

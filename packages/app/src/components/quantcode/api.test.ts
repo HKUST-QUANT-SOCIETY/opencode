@@ -3,6 +3,7 @@ import {
   getQuantCodeSessionContext,
   listQuantCodeCapabilities,
   listQuantCodeSkills,
+  listQuantCodeAlgorithms,
   searchQuantCodeMemory,
 } from "./api"
 import type { OpencodeClient } from "@opencode-ai/sdk/v2"
@@ -61,3 +62,12 @@ describe("QuantCode read-only API adapters", () => {
     expect(cards).toEqual([{ id: "contract", name: "Contract" }])
   })
 })
+
+for (const payload of [undefined, null, {}, { text: "not-json" }, { capabilities: "invalid" }]) {
+  test(`rejects unavailable or malformed directory data: ${JSON.stringify(payload)}`, async () => {
+    await expect(listQuantCodeCapabilities(clientFor(payload))).rejects.toThrow()
+    await expect(listQuantCodeSkills(clientFor(payload), "factor")).rejects.toThrow()
+    await expect(listQuantCodeAlgorithms(clientFor(payload))).rejects.toThrow()
+    await expect(searchQuantCodeMemory(clientFor(payload), "factor")).rejects.toThrow()
+  })
+}

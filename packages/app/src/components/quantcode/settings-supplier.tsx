@@ -12,9 +12,9 @@ export type SupplierProps = {
 }
 
 const ROWS: { key: keyof Omit<SupplierProps, "algorithms">; label: string; env: string; fallback: string }[] = [
-  { key: "provider", label: "Provider", env: "QUANTCODE_MODEL_PROVIDER", fallback: "deepseek" },
-  { key: "model", label: "Model", env: "QUANTCODE_MODEL_NAME", fallback: "deepseek-chat" },
-  { key: "baseUrl", label: "BaseURL", env: "QUANTCODE_MODEL_BASE_URL", fallback: "https://api.deepseek.com/v1" },
+  { key: "provider", label: "Provider", env: "QUANTCODE_MODEL_PROVIDER", fallback: "未读取" },
+  { key: "model", label: "Model", env: "QUANTCODE_MODEL_NAME", fallback: "未读取" },
+  { key: "baseUrl", label: "BaseURL", env: "QUANTCODE_MODEL_BASE_URL", fallback: "未读取" },
 ]
 
 export function SupplierView(props: SupplierProps): HTMLElement {
@@ -35,7 +35,7 @@ export function SupplierView(props: SupplierProps): HTMLElement {
   }
   const hint = document.createElement("p")
   hint.className = "qc-supplier-hint"
-  hint.textContent = "值经 mcp.environment 注入，见 README"
+  hint.textContent = "运行配置由 mcp.environment 管理；未读取时不推断 Provider 或模型。"
   root.append(hint)
   const algorithms = props.algorithms ?? []
   const section = document.createElement("div")

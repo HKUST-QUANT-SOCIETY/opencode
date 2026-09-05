@@ -62,6 +62,11 @@ export function MemoryQueryView(props: MemoryQueryProps): HTMLElement {
 
   let lastQuery = ""
   let searching = false
+  let requestId = 0
+  let resultQuery = ""
+  const results = document.createElement("div")
+  results.className = "qc-memory-results"
+  results.setAttribute("aria-live", "polite")
 
   const sectionLabel = (text: string) => {
     const span = document.createElement("span")
@@ -86,7 +91,7 @@ export function MemoryQueryView(props: MemoryQueryProps): HTMLElement {
   const renderSnippet = (hit: MemoryHit) => {
     const wrap = document.createElement("div")
     wrap.className = "qc-memory-snippet"
-    for (const segment of highlightSegments(hit.snippet ?? "", lastQuery)) {
+    for (const segment of highlightSegments(hit.snippet ?? "", resultQuery)) {
       if (!segment.text) continue
       const part = document.createElement(segment.hit ? "mark" : "span")
       if (segment.hit) {
@@ -101,7 +106,7 @@ export function MemoryQueryView(props: MemoryQueryProps): HTMLElement {
 
   const renderHits = (hits: MemoryHit[]) => {
     if (hits.length === 0) {
-      root.append(emptyState("quantcode.memory.noResults"))
+      results.append(emptyState("quantcode.memory.noResults"))
       return
     }
     const maxScore = Math.max(0, ...hits.map((hit) => (typeof hit.score === "number" && Number.isFinite(hit.score) ? hit.score : 0)))
@@ -141,39 +146,60 @@ export function MemoryQueryView(props: MemoryQueryProps): HTMLElement {
       }
       list.append(row)
     }
-    root.append(list)
+    results.append(list)
   }
 
   const renderResult = (result: MemoryQueryResult) => {
     if (result === null) {
-      root.append(emptyState("quantcode.memory.unavailable"))
+      results.append(emptyState("quantcode.memory.unavailable"))
       return
     }
     if ("denied" in result) {
-      root.append(emptyState("quantcode.memory.denied", true))
+      results.append(emptyState("quantcode.memory.denied", true))
       return
     }
     renderHits(result.hits)
   }
 
   const runSearch = async () => {
-    const query = lastQuery
+    const query = lastQuery.trim()
+    const request = ++requestId
+    if (!query) {
+      searching = false
+      submit.disabled = true
+      results.replaceChildren(emptyState("quantcode.memory.empty"))
+      results.setAttribute("aria-busy", "false")
+      return
+    }
     searching = true
-    render()
+    submit.disabled = true
+    results.replaceChildren()
+    results.setAttribute("aria-busy", "true")
+    const pending = document.createElement("span")
+    pending.className = "qc-connection-pill qc-memory-pending"
+    pending.textContent = "…"
+    results.append(pending)
     try {
       const result = await fetcher(query)
-      if (query !== lastQuery) return // 已有更新的搜索接管渲染
-      searching = false
-      render()
+      if (request !== requestId) return
+      resultQuery = query
+      results.replaceChildren()
       renderResult(result)
     } catch {
-      if (query !== lastQuery) return
-      searching = false
-      render()
-      root.append(emptyState("quantcode.memory.unavailable"))
+      if (request !== requestId) return
+      results.replaceChildren(emptyState("quantcode.memory.unavailable"))
+    } finally {
+      if (request === requestId) {
+        searching = false
+        submit.disabled = !lastQuery.trim()
+        results.setAttribute("aria-busy", "false")
+      }
     }
   }
 
+  // Keep the form mounted while only the result region changes. Keyboard focus
+  // and edits made during an in-flight request survive completion.
+  const submit = document.createElement("button")
   const render = () => {
     root.replaceChildren()
 
@@ -203,36 +229,28 @@ export function MemoryQueryView(props: MemoryQueryProps): HTMLElement {
     input.type = "search"
     input.placeholder = t("quantcode.memory.searchPlaceholder")
     input.autocomplete = "off"
+    input.setAttribute("aria-label", t("quantcode.memory.searchPlaceholder"))
     input.value = lastQuery
     input.addEventListener("input", () => {
       lastQuery = input.value
+      submit.disabled = searching || !lastQuery.trim()
     })
     input.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") void runSearch()
+      if (event.key === "Enter" && !event.isComposing) {
+        event.preventDefault()
+        void runSearch()
+      }
     })
-    const submit = document.createElement("button")
     submit.type = "button"
     submit.className = "qc-button qc-button-primary qc-memory-search-submit"
     submit.textContent = t("quantcode.memory.search")
-    submit.disabled = searching
+    submit.disabled = searching || !lastQuery.trim()
     submit.addEventListener("click", () => void runSearch())
     form.append(input, submit)
     root.append(form)
 
-    const results = document.createElement("div")
-    results.className = "qc-memory-results"
     root.append(results)
-
-    if (!lastQuery.trim() && !searching) {
-      root.append(emptyState("quantcode.memory.empty"))
-    } else if (searching) {
-      // ponytail: 文案沿用"…"（不加新 i18n key）；视觉复用 qc-connection-pill + pulse-opacity 圆点（同 ssh-login connecting）
-      const pending = document.createElement("span")
-      pending.className = "qc-connection-pill qc-memory-pending"
-      const dot = document.createElement("i")
-      pending.append(dot, document.createTextNode("…"))
-      results.append(pending)
-    }
+    results.replaceChildren(emptyState("quantcode.memory.empty"))
     return results
   }
 

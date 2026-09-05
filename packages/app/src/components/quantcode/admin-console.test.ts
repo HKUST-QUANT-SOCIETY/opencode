@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import {
   AdminConsoleView,
+  adminToolStatusView,
   adminStatusChipClass,
   adminStatusLabel,
   buildAdminQueryInstruction,
@@ -66,8 +67,8 @@ describe("admin trace parsers", () => {
     )
     const runs = runsFromTrace(run.execution_trace)
     expect(runs).toHaveLength(3)
-    expect(runs[0]).toMatchObject({ group: "factor", user: "chen", status: "completed" })
-    expect(runs[0]!.timestamp).toBe(1_760_000_000_000)
+    expect(runs[0]).toMatchObject({ group: "risk", user: "wang", status: "error" })
+    expect(runs[0]!.timestamp).toBe(1_760_000_200_000)
   })
 
   test("runsFromPayload accepts bare arrays and field aliases (owner/state)", () => {
@@ -84,8 +85,8 @@ describe("admin trace parsers", () => {
   test("errorsFromTrace extracts records with type tags", () => {
     const errors = errorsFromTrace(traceRun({ type: "tool_result", data: { tool: "admin_errors", result: ERRORS_JSON } }).execution_trace)
     expect(errors).toHaveLength(2)
-    expect(errors[0]!.type).toBe("ToolTimeout")
-    expect(errors[0]!.message).toBe("回撤复核超时")
+    expect(errors[0]!.type).toBe("DataMissing")
+    expect(errors[0]!.message).toBe("行情缺数")
   })
 
   test("toEpochMs normalizes epoch seconds / ms / ISO and rejects junk", () => {
@@ -162,11 +163,11 @@ describe("AdminConsoleView", () => {
   test("trace channel renders 组 → 人 → 状态 grouped cards with status chips", () => {
     const view = AdminConsoleView({ t, run: traceRun({ type: "tool_result", data: { tool: "admin_list_runs", result: RUNS_JSON } }) })
     const groups = [...view.querySelectorAll(".qc-admin-group summary strong")].map((el) => el.textContent)
-    expect(groups).toEqual(["factor", "risk"])
+    expect(groups).toEqual(["risk", "factor"])
     const userRows = [...view.querySelectorAll(".qc-admin-user-row")]
-    expect(userRows.length).toBe(2)
-    expect(userRows[0]!.textContent).toContain("chen")
-    expect(userRows[0]!.textContent).toContain("已完成")
+    expect(userRows.length).toBe(3)
+    expect(userRows[1]!.textContent).toContain("chen")
+    expect(userRows[2]!.textContent).toContain("已完成")
     expect(view.textContent).toContain("PB–ROE 中性化扫描")
     view.remove()
   })
@@ -182,7 +183,7 @@ describe("AdminConsoleView", () => {
     expect(view.textContent).toContain("ToolTimeout")
 
     const filters = [...view.querySelectorAll<HTMLElement>(".qc-admin-filter")]
-    expect(filters.map((el) => el.textContent)).toEqual(["全部", "risk", "factor"])
+    expect(filters.map((el) => el.textContent)).toEqual(["全部", "factor", "risk"])
     filters.find((el) => el.textContent === "risk")!.click()
     expect(view.querySelectorAll(".qc-admin-error-row")).toHaveLength(1)
     expect(view.querySelector(".qc-admin-error-row")!.textContent).toContain("回撤复核超时")
@@ -232,4 +233,28 @@ describe("admin role visibility (F-09)", () => {
     expect(isAdminRole("风控负责人")).toBe(false)
     expect(isAdminRole("Quant Society Member")).toBe(false)
   })
+})
+
+
+test("latest snapshot replaces stale rows and retains backend actor_id/ts", () => {
+  const events: TraceEvent[] = [
+    { type: "tool_result", data: { tool: "admin_list_runs", result: RUNS_JSON } },
+    { type: "tool_result", data: { tool: "admin_list_runs", result: JSON.stringify({ runs: [
+      { thread_id: "latest", actor_id: "roster-actor", ts: 1_760_000_400, status: "running" },
+    ] }) } },
+  ]
+  expect(runsFromTrace(events)).toHaveLength(1)
+  expect(runsFromTrace(events)[0]).toMatchObject({ user: "roster-actor", timestamp: 1_760_000_400_000 })
+  events.push({ type: "tool_result", data: { tool: "admin_list_runs", result: '{"runs":[' } })
+  expect(runsFromTrace(events)).toEqual([])
+  expect(adminToolStatusView(events, ["admin_list_runs"]).textContent).toContain("UNAVAILABLE")
+})
+
+test("service failure retains status and clears earlier success", () => {
+  const events: TraceEvent[] = [
+    { type: "tool_result", data: { tool: "admin_errors", result: ERRORS_JSON } },
+    { type: "tool_result", data: { tool: "admin_errors", result: JSON.stringify({ ok: false, error: "Permission denied", status: "FORBIDDEN" }) } },
+  ]
+  expect(errorsFromTrace(events)).toEqual([])
+  expect(adminToolStatusView(events, ["admin_errors"]).textContent).toContain("Permission denied")
 })

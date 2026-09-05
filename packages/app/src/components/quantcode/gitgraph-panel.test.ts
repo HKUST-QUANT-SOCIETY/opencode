@@ -3,6 +3,8 @@ import {
   GitGraphPanelView,
   isRecentlyPushed,
   packagesFromTrace,
+  packagesFromPayload,
+  reposFromPayload,
   reposFromTrace,
   RECENT_PUSH_MS,
   buildRepoStatusInstruction,
@@ -183,4 +185,11 @@ describe("GitGraphPanelView", () => {
     expect(rows[0]!.textContent).toContain("依赖")
     view.remove()
   })
+})
+
+test("renders canonical backend commit and dependency-file payloads", () => {
+  expect(reposFromPayload({ repos: [{ name: "DataAccess", latest_commit: { message: "Fix PIT" } }] })[0].commit).toBe("Fix PIT")
+  expect(packagesFromPayload({ updates: [{ repo: "DataAccess", files: [{ file: "pyproject.toml", message: "Update dependency" }] }] })).toEqual([
+    { repo: "DataAccess", name: "pyproject.toml", change: "Update dependency" },
+  ])
 })
