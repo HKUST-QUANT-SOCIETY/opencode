@@ -36,7 +36,7 @@ export function RunHistoryView(props: {
   scope: string
   ready: boolean
   mode?: "tasks" | "reports"
-  onRecover?: (threadId: string, checkpointId: string) => void
+  onRecover?: (threadId: string, checkpointId: string) => Promise<boolean>
   reconcile?: (payload: ReceiptReconciliation) => Promise<unknown>
   reconcileGroup?: string
   fetcher: (tool: "list_run_history" | "get_run_history", params: {
@@ -137,9 +137,14 @@ export function RunHistoryView(props: {
       </Show>
       <Show when={detail().can_resume && props.onRecover}>
         <p>恢复会继续原任务的执行。后端会重新校验身份及最新检查点，不会回退到历史版本。</p>
-        <button type="button" disabled={state.loading || state.recovering} onClick={() => {
-          setState("recovering", true)
-          props.onRecover?.(detail().thread_id, detail().checkpoint_id)
+        <button type="button" disabled={state.loading || state.recovering} onClick={async () => {
+          const current = revision
+          setState({ recovering: true, error: "" })
+          try {
+            if (!await props.onRecover?.(detail().thread_id, detail().checkpoint_id)) throw new Error("恢复请求未提交，请检查任务连接后重试。")
+          } catch (error) {
+            if (current === revision) setState({ recovering: false, error: error instanceof Error ? error.message : "恢复请求提交失败。" })
+          }
         }}>{state.recovering ? "已请求恢复，请查看当前任务反馈" : "从最新检查点恢复任务"}</button>
       </Show>
       <Show when={detail().receipt_review_error}><p role="alert">{detail().receipt_review_error}</p></Show>

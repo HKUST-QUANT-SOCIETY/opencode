@@ -1,5 +1,49 @@
 import { expect, test, type Page } from "@playwright/test"
 
+for (const mode of ["approval", "recovery"] as const) {
+  test(`${mode}: rejected submission remains retryable and only acceptance disables it`, async ({ page }) => {
+    await mockContext(page, "analyst")
+    await page.goto("/")
+    await page.evaluate(async mode => {
+      // Render the actual Vite-compiled component with controlled submission
+      // outcomes. No research task or approval reaches the running server.
+      const path = `/src/components/quantcode/${mode === "approval" ? "approval-queue" : "run-history"}.tsx`
+      const source = await (await fetch(path)).text()
+      const renderer = source.match(/from "([^"]*solid-js_web\.js[^\"]*)"/)?.[1]
+      if (!renderer) throw new Error("Vite Solid renderer was not found")
+      const { render } = await import(renderer)
+      const component = await import(path)
+      const root = document.createElement("div")
+      root.setAttribute("data-submission-test", mode)
+      root.style.cssText = "position:fixed;inset:0;z-index:2147483647;background:white;overflow:auto;padding:24px"
+      document.body.append(root)
+      let attempts = 0
+      const submit = async () => ++attempts > 1
+      const run = { thread_id: "fixture-run", checkpoint_id: "fixture-cp", task: "Retry fixture", status: "error" }
+      render(() => mode === "approval"
+        ? component.ApprovalQueue({ scope: "fixture", decide: submit,
+          fetcher: async () => ({ gates: [{ ...run, actor_id: "fixture", gate: { gate_id: "fixture-gate", kind: "permission" } }], next_cursor: null }) })
+        : component.RunHistoryView({ scope: "fixture", ready: true, onRecover: submit,
+          fetcher: async (tool: string) => tool === "list_run_history" ? { runs: [run], next_cursor: null }
+            : { ...run, read_only: true, can_resume: true, messages: [], checkpoints: [run.checkpoint_id] } }), root)
+    }, mode)
+    const root = page.locator(`[data-submission-test="${mode}"]`)
+    if (mode === "recovery") await root.getByRole("button", { name: /Retry fixture/ }).click()
+    const action = root.getByRole("button", { name: mode === "approval" ? "批准" : "从最新检查点恢复任务", exact: true })
+    await action.click()
+    await expect(root.getByRole("alert")).toContainText("请求未提交")
+    await expect(action).toBeEnabled()
+    await action.click()
+    if (mode === "approval") {
+      await expect(action).toBeDisabled()
+      await expect(root.getByRole("status")).toContainText("已请求处理")
+    } else {
+      await expect(root.getByRole("button", { name: "已请求恢复，请查看当前任务反馈", exact: true })).toBeDisabled()
+    }
+    await expect(root.getByRole("alert")).toHaveCount(0)
+  })
+}
+
 // Real branded app and HTTP server, deterministic MCP responses. These prove
 // browser wiring and role presentation, not SSH or production authorization.
 async function mockContext(page: Page, role?: "analyst" | "approver" | "admin", group = "factor") {

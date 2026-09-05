@@ -779,46 +779,52 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
     })
   }
 
-  const submitInstruction = (content: string, nextView: DetailView = "compose") => {
+  const submitInstruction = async (content: string, nextView: DetailView = "compose"): Promise<boolean> => {
     // Guard the shared submission path as well as the form button.  A second
     // click can otherwise arrive before Solid flushes the signal update or
     // while the requestAnimationFrame callback is still queued.
-    if (state.submit === "starting") return
+    if (state.submit === "starting") return false
     setState({ submit: "starting", error: "" })
 
     if (props.onSubmitInstruction) {
-      void submitQuantCodeInstruction(props.onSubmitInstruction, content).then((result) => {
-        if (result === "unavailable") {
-          setState({ submit: "error", error: "请先连接研究服务器并选择一个项目。" })
-          return
-        }
-        if (result === "failed") {
-          setState({ submit: "error", error: "研究启动失败，请重试。" })
-          return
-        }
-        setState({ view: nextView, submit: "submitted" })
-      })
-      return
+      const result = await submitQuantCodeInstruction(props.onSubmitInstruction, content)
+      if (result === "unavailable") {
+        setState({ submit: "error", error: "请先连接研究服务器并选择一个项目。" })
+        return false
+      }
+      if (result === "failed") {
+        setState({ submit: "error", error: "研究启动失败，请重试。" })
+        return false
+      }
+      setState({ view: nextView, submit: "submitted" })
+      return true
     }
 
     if (!prompt) {
       setState({ submit: "error", error: "研究输入尚未就绪，请稍后重试。" })
-      return
+      return false
     }
 
     prompt.set([{ type: "text", content, start: 0, end: content.length }], content.length)
 
-    requestAnimationFrame(() => {
+    return new Promise<boolean>(resolve => requestAnimationFrame(() => {
       const form = document.querySelector<HTMLFormElement>(
         '[data-component="session-composer"], [data-component="session-new-composer"]',
       )
       if (!form) {
         setState({ view: "compose", submit: "error", error: "当前会话输入框尚未就绪，请稍后重试。" })
+        resolve(false)
         return
       }
-      form.requestSubmit()
+      try { form.requestSubmit() }
+      catch {
+        setState({ submit: "error", error: "当前会话提交失败，请稍后重试。" })
+        resolve(false)
+        return
+      }
       setState({ view: nextView, submit: "submitted" })
-    })
+      resolve(true)
+    }))
   }
 
   const submitResearch = () => {
