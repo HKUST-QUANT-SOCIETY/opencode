@@ -2,11 +2,11 @@ import { expect, test, type Page } from "@playwright/test"
 
 // Real branded app and HTTP server, deterministic MCP responses. These prove
 // browser wiring and role presentation, not SSH or production authorization.
-async function mockContext(page: Page, role?: "analyst" | "approver" | "admin") {
+async function mockContext(page: Page, role?: "analyst" | "approver" | "admin", group = "factor") {
   await page.route("**/experimental/quantcode/tool?*", async (route) => {
     const tool = new URL(route.request().url()).searchParams.get("tool")
     const payload = tool === "session_context"
-      ? role ? { group: "factor", role, actor_id: "browser-fixture", workspace_id: "audit" } : { error: "Authentication required" }
+      ? role ? { group, role, actor_id: "browser-fixture", workspace_id: "audit" } : { error: "Authentication required" }
       : tool === "list_skills" ? { skills: [{ id: "factor-evaluation", name: "Factor Evaluation" }] }
       : tool === "list_algorithms" ? { algorithms: [] }
       : tool === "search_memory" ? { status: "EMPTY", hits: [] }
@@ -92,5 +92,18 @@ for (const viewport of [{ width: 900, height: 650 }, { width: 1440, height: 900 
     await expect(page.locator(".qc-memory-hit-row").last()).toBeInViewport()
     await expect(page.getByRole("button", { name: "关闭详情", exact: true })).toBeInViewport()
     await page.screenshot({ path: `e2e/test-results/quantcode/memory-${viewport.width}.png` })
+  })
+}
+
+
+for (const group of ["infra", "agent"]) {
+  test(`${group}: authenticated team group is accepted without admin elevation`, async ({ page }) => {
+    await mockContext(page, "analyst", group)
+    await page.goto("/")
+    await expect(page.locator(".qc-identity")).toContainText(group)
+    await expect(page.getByRole("button", { name: "GitGraph", exact: true })).toBeVisible()
+    await expect(page.getByRole("button", { name: "Admin 中枢", exact: true })).toHaveCount(0)
+    await page.getByRole("textbox", { name: "今天研究什么？" }).fill("查询本组授权仓库")
+    await expect(page.getByRole("button", { name: "开始研究", exact: true })).toBeEnabled()
   })
 }

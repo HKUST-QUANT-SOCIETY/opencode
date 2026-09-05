@@ -1,4 +1,4 @@
-export const QUANTCODE_GROUPS = ["fundamental", "factor", "model", "risk", "strategy", "options"] as const
+export const QUANTCODE_GROUPS = ["fundamental", "factor", "model", "risk", "strategy", "options", "infra", "agent"] as const
 export type QuantCodeGroup = (typeof QUANTCODE_GROUPS)[number]
 
 /**
