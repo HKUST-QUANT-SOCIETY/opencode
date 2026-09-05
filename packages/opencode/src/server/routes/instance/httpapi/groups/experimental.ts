@@ -68,14 +68,59 @@ const QuantCodeToolName = Schema.Union([
   Schema.Literal("ssh_status"),
   Schema.Literal("list_algorithms"),
   Schema.Literal("session_context"),
+  Schema.Literal("list_run_history"),
+  Schema.Literal("get_run_history"),
+  Schema.Literal("get_gitgraph"),
+  Schema.Literal("list_pops"),
+  Schema.Literal("list_distill_candidates"),
+  Schema.Literal("list_pending_gates"),
+  Schema.Literal("admin_task_history"),
+  Schema.Literal("admin_report_history"),
+  Schema.Literal("admin_get_task_history"),
 ])
 export const QuantCodeToolQuery = Schema.Struct({
   ...WorkspaceRoutingQueryFields,
   tool: QuantCodeToolName,
+  cursor: Schema.optional(Schema.String),
+  thread_id: Schema.optional(Schema.String),
+  checkpoint_id: Schema.optional(Schema.String),
+  trace_cursor: Schema.optional(Schema.NumberFromString),
   group: Schema.optional(Schema.String),
   query: Schema.optional(Schema.String),
   limit: Schema.optional(Schema.NumberFromString),
 })
+
+export const QuantCodeReceiptPayload = Schema.Struct({
+  thread_id: Schema.String,
+  checkpoint_id: Schema.String,
+  call_id: Schema.String,
+  expected_digest: Schema.String,
+  decision: Schema.Literals(["confirmed_completed", "confirmed_not_executed"]),
+  evidence_ref: Schema.String,
+  note: Schema.String,
+  result: Schema.optional(Schema.Unknown),
+})
+
+export const QuantCodePopPayload = Schema.Struct({
+  pop_id: Schema.String,
+  read: Schema.optional(Schema.Boolean),
+  ack: Schema.optional(Schema.Boolean),
+})
+
+export const QuantCodeCandidatePayload = Schema.Struct({
+  candidate_name: Schema.String,
+  action: Schema.Literals(["promote", "reject", "supersede", "revoke"]),
+  expected_digest: Schema.optional(Schema.String),
+  superseded_by: Schema.optional(Schema.String),
+})
+
+export const QuantCodeDeploymentPayload = Schema.Struct({
+  artifact_ref: Schema.String,
+  target: Schema.String,
+  manifest: Schema.Record(Schema.String, Schema.Unknown),
+  request_id: Schema.optional(Schema.String),
+})
+export const QuantCodeDeploymentCancelPayload = Schema.Struct({ deployment_id: Schema.String })
 
 const WorktreeList = Schema.Array(Schema.String)
 const WorktreeErrorName = Schema.Union([
@@ -204,6 +249,42 @@ export const ExperimentalApi = HttpApi.make("experimental")
               "Invoke one of the fixed read-only QuantCode tools. Arbitrary MCP tool names and arguments are never accepted.",
           }),
         ),
+        HttpApiEndpoint.post("quantcodePop", "/experimental/quantcode/pop", {
+          query: WorkspaceRoutingQuery,
+          payload: QuantCodePopPayload,
+          success: described(Schema.Unknown, "Personal notification receipt"),
+          error: HttpApiError.BadRequest,
+        }).annotateMerge(OpenApi.annotations({
+          identifier: "quantcode.pop.update",
+          summary: "Update the authenticated actor's notification receipt",
+        })),
+        HttpApiEndpoint.post("quantcodeCandidate", "/experimental/quantcode/candidate", {
+          query: WorkspaceRoutingQuery,
+          payload: QuantCodeCandidatePayload,
+          success: described(Schema.Unknown, "Candidate review result"),
+          error: HttpApiError.BadRequest,
+        }).annotateMerge(OpenApi.annotations({
+          identifier: "quantcode.candidate.review",
+          summary: "Review a knowledge candidate using the authenticated reviewer",
+        })),
+        HttpApiEndpoint.get("quantcodeDeployments", "/experimental/quantcode/deployments", {
+          query: WorkspaceRoutingQuery, success: Schema.Unknown, error: HttpApiError.BadRequest,
+        }).annotateMerge(OpenApi.annotations({ identifier: "quantcode.deployment.list", summary: "Admin deployment records" })),
+        HttpApiEndpoint.post("quantcodeReceiptReconcile", "/experimental/quantcode/receipts/reconcile", {
+          query: WorkspaceRoutingQuery, payload: QuantCodeReceiptPayload, success: Schema.Unknown, error: HttpApiError.BadRequest,
+        }).annotateMerge(OpenApi.annotations({ identifier: "quantcode.receipt.reconcile", summary: "Reconcile an uncertain tool outcome with human evidence" })),
+        HttpApiEndpoint.post("quantcodeDeploymentSubmit", "/experimental/quantcode/deployments", {
+          query: WorkspaceRoutingQuery, payload: QuantCodeDeploymentPayload, success: Schema.Unknown, error: HttpApiError.BadRequest,
+        }).annotateMerge(OpenApi.annotations({ identifier: "quantcode.deployment.submit", summary: "Stage an Admin deployment request" })),
+        HttpApiEndpoint.post("quantcodeDeploymentCancel", "/experimental/quantcode/deployments/cancel", {
+          query: WorkspaceRoutingQuery, payload: QuantCodeDeploymentCancelPayload, success: Schema.Unknown, error: HttpApiError.BadRequest,
+        }).annotateMerge(OpenApi.annotations({ identifier: "quantcode.deployment.cancel", summary: "Cancel a staged deployment request" })),
+        HttpApiEndpoint.get("quantcodeIdentities", "/experimental/quantcode/identities", {
+          query: WorkspaceRoutingQuery, success: Schema.Unknown, error: HttpApiError.BadRequest,
+        }).annotateMerge(OpenApi.annotations({ identifier: "quantcode.identity.list", summary: "Read the host-configured public SSH identity" })),
+        HttpApiEndpoint.post("quantcodeIdentityLogin", "/experimental/quantcode/identity/login", {
+          query: WorkspaceRoutingQuery, payload: Schema.Struct({}), success: Schema.Unknown, error: HttpApiError.BadRequest,
+        }).annotateMerge(OpenApi.annotations({ identifier: "quantcode.identity.login", summary: "Sign a gateway challenge with the host SSH agent" })),
         HttpApiEndpoint.get("worktree", ExperimentalPaths.worktree, {
           query: WorkspaceRoutingQuery,
           success: described(WorktreeList, "List of worktree directories"),

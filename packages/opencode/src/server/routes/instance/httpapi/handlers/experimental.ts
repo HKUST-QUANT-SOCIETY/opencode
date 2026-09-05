@@ -1,3 +1,5 @@
+import { localIdentity, signInLocalIdentity } from "./quantcode-identity"
+import { quantcodeManagement } from "./quantcode-management"
 import { Account } from "@/account/account"
 import { Agent } from "@/agent/agent"
 import { BackgroundJob } from "@/background/job"
@@ -25,10 +27,51 @@ import {
 import {
   ConsoleSwitchPayload,
   QuantCodeToolQuery,
+  QuantCodePopPayload,
+  QuantCodeReceiptPayload,
+  QuantCodeCandidatePayload,
+  QuantCodeDeploymentPayload,
+  QuantCodeDeploymentCancelPayload,
   SessionListQuery,
   ToolListQuery,
   WorktreeApiError,
 } from "../groups/experimental"
+
+function unwrapQuantCodeResult(result: unknown): unknown {
+      if (!result) return { error: "QuantCode MCP is not connected" }
+      const payload = result as {
+        isError?: boolean
+        content?: unknown
+        structuredContent?: unknown
+      }
+      const textContent = Array.isArray(payload.content)
+        ? payload.content
+            .filter(
+              (item): item is { type: "text"; text: string } =>
+                typeof item === "object" &&
+                item !== null &&
+                "type" in item &&
+                item.type === "text" &&
+                "text" in item &&
+                typeof item.text === "string",
+            )
+            .map((item) => item.text)
+        : []
+      if (payload.isError) {
+        const message = textContent.filter((text) => text.trim()).join("\n\n")
+        return { error: message || "QuantCode read-only tool failed" }
+      }
+      if (payload.structuredContent !== undefined && payload.structuredContent !== null) {
+        return payload.structuredContent
+      }
+      const text = textContent.join("\n").trim()
+      if (!text) return {}
+      try {
+        return JSON.parse(text) as unknown
+      } catch {
+        return { text }
+      }
+}
 
 function mapWorktreeError<A, R>(self: Effect.Effect<A, Worktree.Error, R>) {
   return self.pipe(
@@ -129,50 +172,97 @@ export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "exper
           ? { group: ctx.query.group ?? "" }
           : ctx.query.tool === "search_memory"
             ? { query: ctx.query.query ?? "", limit: ctx.query.limit ?? 10 }
-            : {}
+            : ["list_run_history", "admin_task_history", "admin_report_history", "list_pending_gates", "list_pops"].includes(ctx.query.tool)
+              ? { limit: ctx.query.limit ?? 20, cursor: ctx.query.cursor }
+              : ["get_run_history", "admin_get_task_history"].includes(ctx.query.tool)
+                ? { thread_id: ctx.query.thread_id, checkpoint_id: ctx.query.checkpoint_id, trace_cursor: ctx.query.trace_cursor ?? 0 }
+                : {}
       if (ctx.query.tool === "list_skills" && !ctx.query.group?.trim()) {
         return yield* Effect.fail(new HttpApiError.BadRequest({}))
       }
       if (ctx.query.tool === "search_memory" && !ctx.query.query?.trim()) {
         return yield* Effect.fail(new HttpApiError.BadRequest({}))
       }
+      if (["get_run_history", "admin_get_task_history"].includes(ctx.query.tool) && !ctx.query.thread_id?.trim()) {
+        return yield* Effect.fail(new HttpApiError.BadRequest({}))
+      }
       const result = yield* (mcp.callTool
         ? mcp.callTool("quantcode", ctx.query.tool, args)
         : Effect.succeed<unknown>(undefined))
-      if (!result) return { error: "QuantCode MCP is not connected" }
-      const payload = result as {
-        isError?: boolean
-        content?: unknown
-        structuredContent?: unknown
-      }
-      const textContent = Array.isArray(payload.content)
-        ? payload.content
-            .filter(
-              (item): item is { type: "text"; text: string } =>
-                typeof item === "object" &&
-                item !== null &&
-                "type" in item &&
-                item.type === "text" &&
-                "text" in item &&
-                typeof item.text === "string",
-            )
-            .map((item) => item.text)
-        : []
-      if (payload.isError) {
-        const message = textContent.filter((text) => text.trim()).join("\n\n")
-        return { error: message || "QuantCode read-only tool failed" }
-      }
-      if (payload.structuredContent !== undefined && payload.structuredContent !== null) {
-        return payload.structuredContent
-      }
-      const text = textContent.join("\n").trim()
-      if (!text) return {}
-      try {
-        return JSON.parse(text) as unknown
-      } catch {
-        return { text }
-      }
+      return unwrapQuantCodeResult(result)
     })
+
+    const quantcodePop = Effect.fn("ExperimentalHttpApi.quantcodePop")(function* (ctx: {
+      payload: typeof QuantCodePopPayload.Type
+    }) {
+      if (!ctx.payload.pop_id.trim() || (ctx.payload.read === undefined && ctx.payload.ack === undefined)) {
+        return yield* Effect.fail(new HttpApiError.BadRequest({}))
+      }
+      const result = yield* (mcp.callTool
+        ? mcp.callTool("quantcode", "update_pop_status", ctx.payload)
+        : Effect.succeed<unknown>(undefined))
+      return unwrapQuantCodeResult(result)
+    })
+
+    const quantcodeCandidate = Effect.fn("ExperimentalHttpApi.quantcodeCandidate")(function* (ctx: {
+      payload: typeof QuantCodeCandidatePayload.Type
+    }) {
+      if (!ctx.payload.candidate_name.trim() || (ctx.payload.action === "promote" && !ctx.payload.expected_digest)) {
+        return yield* Effect.fail(new HttpApiError.BadRequest({}))
+      }
+      const result = yield* (mcp.callTool
+        ? mcp.callTool("quantcode", "review_distill_candidate", ctx.payload)
+        : Effect.succeed<unknown>(undefined))
+      return unwrapQuantCodeResult(result)
+    })
+
+    const manageDeployment = Effect.fn("ExperimentalHttpApi.manageDeployment")(function* (path: "/deployments" | "/deployments/cancel", payload?: unknown) {
+      const result = yield* (mcp.callTool ? mcp.callTool("quantcode", "session_context", {}) : Effect.succeed<unknown>(undefined))
+      const identity = unwrapQuantCodeResult(result)
+      if (!identity || typeof identity !== "object" || !("role" in identity) || identity.role !== "admin" || !("session_id" in identity) || typeof identity.session_id !== "string") {
+        return yield* Effect.fail(new HttpApiError.BadRequest({}))
+      }
+      const sessionID = identity.session_id
+      return yield* Effect.tryPromise({ try: () => quantcodeManagement(path, sessionID, payload), catch: () => new HttpApiError.BadRequest({}) })
+    })
+    const quantcodeDeployments = () => manageDeployment("/deployments")
+    const quantcodeReceiptReconcile = Effect.fn("ExperimentalHttpApi.quantcodeReceiptReconcile")(function* (ctx: { payload: typeof QuantCodeReceiptPayload.Type }) {
+      const raw = yield* (mcp.callTool ? mcp.callTool("quantcode", "session_context", {}) : Effect.succeed<unknown>(undefined))
+      const identity = unwrapQuantCodeResult(raw)
+      if (!identity || typeof identity !== "object" || !("role" in identity) || !["admin", "approver"].includes(String(identity.role))
+        || !("session_id" in identity) || typeof identity.session_id !== "string") return yield* Effect.fail(new HttpApiError.BadRequest({}))
+      const sessionID = identity.session_id
+      return yield* Effect.tryPromise({ try: () => quantcodeManagement("/receipts/reconcile", sessionID, ctx.payload), catch: () => new HttpApiError.BadRequest({}) })
+    })
+    const quantcodeDeploymentSubmit = (ctx: { payload: typeof QuantCodeDeploymentPayload.Type }) => manageDeployment("/deployments", ctx.payload)
+    const quantcodeDeploymentCancel = (ctx: { payload: typeof QuantCodeDeploymentCancelPayload.Type }) => manageDeployment("/deployments/cancel", ctx.payload)
+
+    const quantcodeIdentities = () => Effect.tryPromise({
+      try: localIdentity, catch: (error) => error,
+    }).pipe(Effect.catch((error) => Effect.succeed({ identities: [], error: error instanceof Error ? error.message : "Identity bridge unavailable" })))
+    const quantcodeIdentityLoginWork = Effect.fn("ExperimentalHttpApi.quantcodeIdentityLoginWork")(function* () {
+      const result = yield* Effect.tryPromise({ try: signInLocalIdentity, catch: () => new HttpApiError.BadRequest({}) })
+      yield* mcp.connect("quantcode").pipe(Effect.mapError(() => new HttpApiError.BadRequest({})))
+      const confirmed = yield* (mcp.callTool ? mcp.callTool("quantcode", "session_context", {}) : Effect.succeed<unknown>(undefined))
+      const identity = unwrapQuantCodeResult(confirmed)
+      if (!identity || typeof identity !== "object" || !("actor_id" in identity) || !identity.actor_id) {
+        return yield* Effect.fail(new HttpApiError.BadRequest({}))
+      }
+      if (!result || typeof result !== "object" || !("session_id" in result) || !("session_id" in identity) || result.session_id !== identity.session_id) {
+        return yield* Effect.fail(new HttpApiError.BadRequest({}))
+      }
+      return result
+    })
+    let identityConnecting = false
+    const quantcodeIdentityLogin = Effect.fn("ExperimentalHttpApi.quantcodeIdentityLogin")(() =>
+      Effect.suspend(() => {
+        if (identityConnecting) return Effect.fail(new HttpApiError.BadRequest({}))
+        identityConnecting = true
+        // Admission covers signing, reconnecting MCP, and confirming its exact
+        // session. Coalescing only the signature still allowed duplicate connects.
+        return quantcodeIdentityLoginWork().pipe(Effect.ensuring(Effect.sync(() => { identityConnecting = false })))
+      }),
+    )
 
     const worktree = Effect.fn("ExperimentalHttpApi.worktree")(function* () {
       const ctx = yield* InstanceState.context
@@ -274,6 +364,14 @@ export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "exper
       .handle("tool", tool)
       .handle("toolIDs", toolIDs)
       .handle("quantcodeTool", quantcodeTool)
+      .handle("quantcodePop", quantcodePop)
+      .handle("quantcodeCandidate", quantcodeCandidate)
+      .handle("quantcodeDeployments", quantcodeDeployments)
+      .handle("quantcodeReceiptReconcile", quantcodeReceiptReconcile)
+      .handle("quantcodeDeploymentSubmit", quantcodeDeploymentSubmit)
+      .handle("quantcodeDeploymentCancel", quantcodeDeploymentCancel)
+      .handle("quantcodeIdentities", quantcodeIdentities)
+      .handle("quantcodeIdentityLogin", quantcodeIdentityLogin)
       .handle("worktree", worktree)
       .handle("worktreeCreate", worktreeCreate)
       .handle("worktreeRemove", worktreeRemove)

@@ -215,14 +215,18 @@ describe("AdminConsoleView", () => {
     view.remove()
   })
 
-  test("GitGraph entry button calls onOpenGitgraph; Q2 entries render as placeholders", () => {
+  test("management entries open GitGraph, reports and task history", () => {
     let opened = false
-    const view = AdminConsoleView({ t, run: null, onOpenGitgraph: () => (opened = true) })
+    const history: string[] = []
+    const view = AdminConsoleView({ t, run: null, onOpenGitgraph: () => (opened = true), onOpenHistory: mode => history.push(mode) })
     view.querySelector<HTMLElement>(".qc-admin-open-gitgraph")!.click()
     expect(opened).toBe(true)
-    expect(view.textContent).toContain("报告管理")
-    expect(view.textContent).toContain("任务管理")
-    expect(view.textContent).toContain("Q2")
+    for (const name of ["报告与产物", "任务管理"]) {
+      const button = Array.from(view.querySelectorAll("button")).find(item => item.textContent === name)!
+      expect(button.disabled).toBe(false)
+      button.click()
+    }
+    expect(history).toEqual(["reports", "tasks"])
     view.remove()
   })
 })

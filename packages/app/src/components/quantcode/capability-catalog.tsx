@@ -254,14 +254,19 @@ export function CapabilityCatalogView(props: CapabilityCatalogProps): HTMLElemen
   const listHost = document.createElement("div")
   listHost.className = "qc-capability-results"
 
-  root.replaceChildren(intro, search, listHost)
-  renderList()
-
-  if (props.fetcher) {
+  const refresh = document.createElement("button")
+  refresh.type = "button"
+  refresh.textContent = "刷新能力目录"
+  refresh.hidden = !props.fetcher
+  const fetchCards = () => {
+    if (!props.fetcher || refresh.disabled) return
+    refresh.disabled = true
+    fetchState = "loading"
+    fetched = undefined
+    renderList()
     void props
       .fetcher()
       .then((result) => {
-        if (fetched !== undefined) return
         if (result === null) {
           fetchState = "unavailable"
           renderList()
@@ -275,7 +280,12 @@ export function CapabilityCatalogView(props: CapabilityCatalogProps): HTMLElemen
         fetchState = "unavailable"
         renderList()
       })
+      .finally(() => { refresh.disabled = false })
   }
+  refresh.addEventListener("click", fetchCards)
+  root.replaceChildren(intro, search, refresh, listHost)
+  renderList()
+  fetchCards()
 
   return root
 }

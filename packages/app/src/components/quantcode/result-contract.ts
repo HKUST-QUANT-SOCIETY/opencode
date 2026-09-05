@@ -1,5 +1,7 @@
 export type TraceEvent = {
   type: string
+  event_id?: string
+  timestamp?: number
   thread_id?: string
   seq?: number
   iteration?: number | null

@@ -7688,7 +7688,26 @@ export type QuantcodeToolReadOnlyData = {
   query: {
     directory?: string
     workspace?: string
-    tool: "search_memory" | "list_capabilities" | "list_skills" | "ssh_status" | "list_algorithms" | "session_context"
+    tool:
+      | "search_memory"
+      | "list_capabilities"
+      | "list_skills"
+      | "ssh_status"
+      | "list_algorithms"
+      | "session_context"
+      | "list_run_history"
+      | "get_run_history"
+      | "get_gitgraph"
+      | "list_pops"
+      | "list_distill_candidates"
+      | "list_pending_gates"
+      | "admin_task_history"
+      | "admin_report_history"
+      | "admin_get_task_history"
+    cursor?: string
+    thread_id?: string
+    checkpoint_id?: string
+    trace_cursor?: string
     group?: string
     query?: string
     limit?: string
@@ -7708,6 +7727,243 @@ export type QuantcodeToolReadOnlyError = QuantcodeToolReadOnlyErrors[keyof Quant
 export type QuantcodeToolReadOnlyResponses = {
   /**
    * QuantCode read-only tool result
+   */
+  200: unknown
+}
+
+export type QuantcodePopUpdateData = {
+  body?: {
+    pop_id: string
+    read?: boolean
+    ack?: boolean
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/experimental/quantcode/pop"
+}
+
+export type QuantcodePopUpdateErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+}
+
+export type QuantcodePopUpdateError = QuantcodePopUpdateErrors[keyof QuantcodePopUpdateErrors]
+
+export type QuantcodePopUpdateResponses = {
+  /**
+   * Personal notification receipt
+   */
+  200: unknown
+}
+
+export type QuantcodeCandidateReviewData = {
+  body?: {
+    candidate_name: string
+    action: "promote" | "reject" | "supersede" | "revoke"
+    expected_digest?: string
+    superseded_by?: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/experimental/quantcode/candidate"
+}
+
+export type QuantcodeCandidateReviewErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+}
+
+export type QuantcodeCandidateReviewError = QuantcodeCandidateReviewErrors[keyof QuantcodeCandidateReviewErrors]
+
+export type QuantcodeCandidateReviewResponses = {
+  /**
+   * Candidate review result
+   */
+  200: unknown
+}
+
+export type QuantcodeDeploymentListData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/experimental/quantcode/deployments"
+}
+
+export type QuantcodeDeploymentListErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+}
+
+export type QuantcodeDeploymentListError = QuantcodeDeploymentListErrors[keyof QuantcodeDeploymentListErrors]
+
+export type QuantcodeDeploymentListResponses = {
+  /**
+   * Success
+   */
+  200: unknown
+}
+
+export type QuantcodeDeploymentSubmitData = {
+  body?: {
+    artifact_ref: string
+    target: string
+    manifest: {
+      [key: string]: unknown
+    }
+    request_id?: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/experimental/quantcode/deployments"
+}
+
+export type QuantcodeDeploymentSubmitErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+}
+
+export type QuantcodeDeploymentSubmitError = QuantcodeDeploymentSubmitErrors[keyof QuantcodeDeploymentSubmitErrors]
+
+export type QuantcodeDeploymentSubmitResponses = {
+  /**
+   * Success
+   */
+  200: unknown
+}
+
+export type QuantcodeReceiptReconcileData = {
+  body?: {
+    thread_id: string
+    checkpoint_id: string
+    call_id: string
+    expected_digest: string
+    decision: "confirmed_completed" | "confirmed_not_executed"
+    evidence_ref: string
+    note: string
+    result?: unknown
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/experimental/quantcode/receipts/reconcile"
+}
+
+export type QuantcodeReceiptReconcileErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+}
+
+export type QuantcodeReceiptReconcileError = QuantcodeReceiptReconcileErrors[keyof QuantcodeReceiptReconcileErrors]
+
+export type QuantcodeReceiptReconcileResponses = {
+  /**
+   * Success
+   */
+  200: unknown
+}
+
+export type QuantcodeDeploymentCancelData = {
+  body?: {
+    deployment_id: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/experimental/quantcode/deployments/cancel"
+}
+
+export type QuantcodeDeploymentCancelErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+}
+
+export type QuantcodeDeploymentCancelError = QuantcodeDeploymentCancelErrors[keyof QuantcodeDeploymentCancelErrors]
+
+export type QuantcodeDeploymentCancelResponses = {
+  /**
+   * Success
+   */
+  200: unknown
+}
+
+export type QuantcodeIdentityListData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/experimental/quantcode/identities"
+}
+
+export type QuantcodeIdentityListErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+}
+
+export type QuantcodeIdentityListError = QuantcodeIdentityListErrors[keyof QuantcodeIdentityListErrors]
+
+export type QuantcodeIdentityListResponses = {
+  /**
+   * Success
+   */
+  200: unknown
+}
+
+export type QuantcodeIdentityLoginData = {
+  body?: {
+    [key: string]: unknown
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/experimental/quantcode/identity/login"
+}
+
+export type QuantcodeIdentityLoginErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+}
+
+export type QuantcodeIdentityLoginError = QuantcodeIdentityLoginErrors[keyof QuantcodeIdentityLoginErrors]
+
+export type QuantcodeIdentityLoginResponses = {
+  /**
+   * Success
    */
   200: unknown
 }

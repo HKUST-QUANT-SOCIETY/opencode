@@ -22,11 +22,12 @@ export function buildResearchInstruction(input: { task: string; skillLabel: stri
   )
 }
 
-export function buildResumeInstruction(threadId: string, decision: "approve" | "reject") {
+export function buildResumeInstruction(threadId: string, decision: "approve" | "reject", gateId?: string, checkpointId?: string) {
   return (
     "You MUST call the quantcode_run_agent MCP tool NOW. Do NOT chat. Do NOT acknowledge. " +
     `Resume the existing HumanGate with thread_id: ${JSON.stringify(threadId)}, decision: ${JSON.stringify(decision)}. ` +
-    "Do not start a new research task."
+    `Use expected_gate_id: ${JSON.stringify(gateId)}. ${checkpointId ? `Use expected_checkpoint_id: ${JSON.stringify(checkpointId)}. ` : ""}` +
+    "Do not start a new research task or retry a changed/resolved Gate."
   )
 }
 
@@ -37,4 +38,10 @@ export function buildComposePrefix() {
     "The user's task follows. Translate it into the task parameter; do not reply in text.\n\n" +
     "=== USER TASK ===\n"
   )
+}
+
+export function buildRecoveryInstruction(threadId: string, checkpointId: string) {
+  return "Call the quantcode_run_agent MCP tool to recover the existing ordinary task with exactly these parameters: " +
+    JSON.stringify({ thread_id: threadId, expected_checkpoint_id: checkpointId, resume: true, attach_stream: true }) +
+    ". Do not start a new task, supply a HumanGate decision, change the group, or retry automatically if the checkpoint changed. Report any permission, pending-approval, or execution error."
 }

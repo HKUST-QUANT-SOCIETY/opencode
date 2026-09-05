@@ -236,6 +236,7 @@ export type AdminConsoleProps = {
   sendInstruction?: (content: string) => void
   /** GitGraph 面板入口按钮（panels 接视图切换） */
   onOpenGitgraph?: () => void
+  onOpenHistory?: (mode: "tasks" | "reports") => void
 }
 
 /** run 状态 → chip 类（与 panels.statusLabel 同源口径，ponytail: 等 admin 面板与 history 共源后抽公共 util） */
@@ -308,15 +309,14 @@ export function AdminConsoleView(props: AdminConsoleProps): HTMLElement {
       open.addEventListener("click", () => props.onOpenGitgraph?.())
       row.append(open)
     }
-    // Q2 工作台深化入口占位（spec F-09：报告管理/任务管理 Q2）
-    for (const entry of [t("quantcode.admin.reportsEntry"), t("quantcode.admin.tasksEntry")]) {
-      const holder = document.createElement("span")
-      holder.className = "qc-admin-entry-q2"
-      holder.style.cssText = "display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border:1px dashed var(--qc-line);border-radius:999px;font-size:10px;color:var(--qc-muted);"
-      const label = document.createElement("span")
-      label.textContent = entry
-      holder.append(label, chip(t("quantcode.admin.q2Badge")))
-      row.append(holder)
+    for (const entry of [{ mode: "reports" as const, label: "报告与产物" }, { mode: "tasks" as const, label: "任务管理" }]) {
+      const button = document.createElement("button")
+      button.type = "button"
+      button.className = "qc-button"
+      button.textContent = entry.label
+      button.disabled = !props.onOpenHistory
+      button.addEventListener("click", () => props.onOpenHistory?.(entry.mode))
+      row.append(button)
     }
     return row
   }

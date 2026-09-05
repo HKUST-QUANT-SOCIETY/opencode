@@ -25,28 +25,37 @@ import { usePrompt } from "@/context/prompt"
 import { useServer } from "@/context/server"
 import { useServerSDK } from "@/context/server-sdk"
 import { useLanguage } from "@/context/language"
+import { usePlatform } from "@/context/platform"
 import { showToast } from "@/utils/toast"
 import { QcBigNumber, QcProgress, formatMetricValue, type MetricTone } from "./metric-cards"
-import { buildResearchInstruction, buildResumeInstruction, QUANTCODE_GROUPS, type QuantCodeGroup } from "./instructions"
+import { buildResearchInstruction, buildResumeInstruction, buildRecoveryInstruction, QUANTCODE_GROUPS, type QuantCodeGroup } from "./instructions"
 import { isRunAgentResult, type RunAgentResult, type TraceEvent } from "./result-contract"
 import { submitQuantCodeInstruction, type QuantCodeSubmissionHandler } from "./submission"
 import { FactorFlowView } from "./factor-screen"
-import { NotificationsBell, NotificationsPanel, pendingNotifications, updateNotifications } from "./notifications"
+import { NotificationsBell, NotificationsPanel, pendingNotifications } from "./notifications"
 import { PitValuationView } from "./pit-screen"
 import { SupplierView } from "./settings-supplier"
-import { SshLoginView, type SshConnectFn } from "./ssh-login"
+import { SshLoginView, type SshConnectFn, type SshIdentity } from "./ssh-login"
 import { CapabilityCatalogView } from "./capability-catalog"
+import { ApprovalQueue } from "./approval-queue"
+import { DeploymentPanel } from "./deployment-panel"
+import { KnowledgeReview } from "./knowledge-review"
+import { RunHistoryView } from "./run-history"
 import { MemoryQueryView } from "./memory-query"
 import { SolutionPanelView } from "./solution-panel"
 import { AdminConsoleView } from "./admin-console"
-import { GitGraphPanelView } from "./gitgraph-panel"
+import { GitHubWorkspace } from "./github-workspace"
 import {
+  readQuantCodeTool,
+  reconcileQuantCodeReceipt,
+  updateQuantCodePop,
+  reviewQuantCodeCandidate,
   listQuantCodeAlgorithms,
   listQuantCodeSkills,
   listQuantCodeCapabilities,
   searchQuantCodeMemory,
   getQuantCodeSessionContext,
-  createSshStatusConnect,
+  createLocalIdentityConnect,
   type QuantCodeAlgorithm,
   type QuantCodeSkill,
 } from "./api"
@@ -82,9 +91,11 @@ function loadScopedThreadCache(key: string) {
 
 function mergeTraceEvents(existing: TraceEvent[], incoming: TraceEvent[]) {
   const events = new Map<string, TraceEvent>()
-  for (const event of existing) events.set(`${event.iteration ?? 0}:${event.seq ?? 0}`, event)
-  for (const event of incoming) events.set(`${event.iteration ?? 0}:${event.seq ?? 0}`, event)
-  return [...events.values()].sort((a, b) => (a.iteration ?? 0) - (b.iteration ?? 0) || (a.seq ?? 0) - (b.seq ?? 0))
+  for (const event of [...existing, ...incoming]) {
+    const key = event.event_id ?? JSON.stringify([event.thread_id, event.type, event.node, event.iteration, event.seq, event.data])
+    events.set(key, event)
+  }
+  return [...events.values()]
 }
 
 function mergeGate(
@@ -498,6 +509,8 @@ function SettingsPanel(props: {
   /** F-05 SSH 登录视图的 i18n（quantcode.ssh.*），来自 useLanguage().t */
   sshT: (key: string) => string
   sshConnect: SshConnectFn
+  sshIdentities: SshIdentity[]
+  sshIdentityError: string
 }): JSX.Element {
   return (
     <div class="qc-detail-body">
@@ -545,7 +558,8 @@ function SettingsPanel(props: {
       </div>
       <div class="qc-detail-section">
         <span class="qc-section-label">SSH LOGIN</span>
-        <SshLoginView t={props.sshT} connect={props.sshConnect} />
+        <Show when={props.sshIdentityError}><p role="alert">{props.sshIdentityError}</p></Show>
+        <SshLoginView t={props.sshT} connect={props.sshConnect} identities={props.sshIdentities} />
       </div>
       <SupplierView algorithms={props.algorithms} />
     </div>
@@ -566,6 +580,7 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
   const server = useServer()
   const serverSDK = useServerSDK()
   const language = useLanguage()
+  const platform = usePlatform()
   const [state, setState] = createStore({
     view: "compose" as DetailView,
     task: "",
@@ -575,6 +590,12 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
     sessionStatus: "loading" as "loading" | "ready" | "error",
     sessionRole: "未连接",
     sessionActor: "未连接",
+    historyScope: "",
+    githubUnread: 0,
+    identityRevision: 0,
+    sshIdentities: [] as SshIdentity[],
+    sshIdentityError: "",
+    adminHistory: "tasks" as "tasks" | "reports",
     algorithms: [] as QuantCodeAlgorithm[],
     submit: "idle" as SubmitState,
     error: "",
@@ -587,7 +608,6 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
   let sharpBrand: HTMLDivElement | undefined
   const [notifOpen, setNotifOpen] = createSignal(false)
   const notifItems = createMemo(() => pendingNotifications(_threadHistory(), _trace()))
-  const updateItems = createMemo(() => updateNotifications(_threadHistory()))
   /** F-09: admin 中枢仅服务端签发的 admin 角色可见。 */
   const adminViewable = createMemo(() => state.sessionStatus === "ready" && state.sessionRole === "admin")
 
@@ -601,7 +621,7 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
   }
 
   /** F-09：通知 = 待审批 gate + 双类 pop（repo 新提交 / 依赖更新），badge 计数合并 */
-  const allNotifItems = createMemo(() => [...notifItems(), ...updateItems()])
+  const allNotifItems = createMemo(() => notifItems())
 
   // 通知面板打开期间监听 Escape 关闭（effect 重跑时自动解除旧监听）
   createEffect(() => {
@@ -620,15 +640,36 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
 
   let skillsRequest = 0
   createEffect(() => {
+    state.identityRevision
     const client = serverSDK().client
     const serverKey = String(server.key)
     let cancelled = false
+    setState({ sshIdentities: [], sshIdentityError: "" })
+    void client.quantcode.identity.list().then(response => {
+      if (cancelled) return
+      const data = response.data
+      if (response.error || !data || typeof data !== "object") {
+        setState("sshIdentityError", "本机身份服务不可用，请检查研究服务器连接。")
+        return
+      }
+      if ("error" in data && typeof data.error === "string") {
+        setState("sshIdentityError", data.error)
+        return
+      }
+      if (!("identities" in data) || !Array.isArray(data.identities)
+        || !data.identities.every(identity => identity && typeof identity.id === "string" && typeof identity.fingerprint === "string")) {
+        setState("sshIdentityError", "本机身份服务返回格式错误。")
+        return
+      }
+      setState("sshIdentities", data.identities as SshIdentity[])
+      if (!data.identities.length) setState("sshIdentityError", "宿主尚未提供可用公钥身份，请完成本机身份桥配置。")
+    }).catch(() => { if (!cancelled) setState("sshIdentityError", "读取本机身份失败，请检查研究服务器连接。") })
     onCleanup(() => { cancelled = true })
     activeThreadCacheKey = undefined
     setSessionId(undefined)
     lastResultJson = undefined
     resetQuantCodeState()
-    setState({ sessionStatus: "loading", sessionRole: "未连接", sessionActor: "未连接", skills: [], skill: "" })
+    setState({ historyScope: "", sessionStatus: "loading", sessionRole: "未连接", sessionActor: "未连接", skills: [], skill: "" })
     void getQuantCodeSessionContext(client).then(
       (context) => {
         if (cancelled) return
@@ -643,7 +684,7 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
         resetQuantCodeState()
         if (activeThreadCacheKey) loadScopedThreadCache(activeThreadCacheKey)
         setQuantCodeSessionGroup(group)
-        setState({ sessionStatus: "ready", sessionRole: context.role ?? "analyst", sessionActor: context.actor_id ?? "已认证身份" })
+        setState({ historyScope: activeThreadCacheKey ?? "", sessionStatus: "ready", sessionRole: context.role ?? "analyst", sessionActor: context.actor_id ?? "已认证身份" })
       },
       () => {
         if (cancelled) return
@@ -690,7 +731,7 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
   const serverName = createMemo(() => server.name || "当前服务器")
   const serverReady = createMemo(() => server.ready())
   const serverTransport = createMemo(() => (server.isLocal() ? "本地 sidecar" : server.key))
-  const sshConnect = createMemo(() => createSshStatusConnect(serverSDK().client))
+  const sshConnect = createMemo(() => createLocalIdentityConnect(serverSDK().client, () => setState("identityRevision", value => value + 1)))
   const recent = createMemo(() => {
     const history = _threadHistory().slice(0, 3)
     if (history.length) {
@@ -801,7 +842,7 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
           parts: [
             {
               type: "text",
-              text: buildResumeInstruction(threadId, decision),
+              text: buildResumeInstruction(threadId, decision, _trace()?.gate?.gate_id),
             },
           ],
         })
@@ -885,10 +926,10 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
           QC
         </button>
         <nav>
-          <Show when={allNotifItems().length > 0 || notifOpen()} fallback={null}>
+          <Show when={allNotifItems().length > 0 || state.githubUnread > 0 || notifOpen()} fallback={null}>
             {(() => {
               const bell = NotificationsBell({
-                count: allNotifItems().length,
+                count: allNotifItems().length + state.githubUnread,
                 onClick: () => setNotifOpen(!notifOpen()),
               })
               bell.classList.toggle("is-active", notifOpen())
@@ -915,6 +956,7 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
           </For>
         </nav>
         <Show when={notifOpen()}>
+          <button type="button" class="qc-button" onClick={() => { setNotifOpen(false); setState("view", "gitgraph") }}>持久更新通知（{state.githubUnread}）</button>
           {NotificationsPanel({
             items: allNotifItems(),
             onClose: () => setNotifOpen(false),
@@ -1133,6 +1175,22 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
             </div>
           </section>
 
+          <GitHubWorkspace
+            scope={state.historyScope}
+            ready={state.sessionStatus === "ready"}
+            visible={state.view === "gitgraph"}
+            fetcher={(tool, cursor) => readQuantCodeTool(serverSDK().client, tool, undefined, { cursor })}
+            update={(id, changes) => updateQuantCodePop(serverSDK().client, id, changes)}
+            onUnread={(count) => setState("githubUnread", count)}
+            notificationPermission={async () => {
+              if (platform.platform === "desktop") return true
+              if (!("Notification" in window)) return false
+              if (Notification.permission === "granted") return true
+              if (Notification.permission === "denied") return false
+              return await Notification.requestPermission() === "granted"
+            }}
+            notify={(count) => platform.notify("QuantCode · GitHub 更新", `发现 ${count} 条新更新，请在 GitGraph 中查看。`)}
+          />
           <Show when={state.view !== "compose"}>
             <section class="qc-detail-panel" aria-label="QuantCode 详情">
               <div class="qc-detail-header">
@@ -1167,6 +1225,15 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
               <Switch>
                 <Match when={state.view === "activity"}>
                   <ActivityPanel onUseTask={focusComposer} />
+                  <RunHistoryView
+                    scope={state.historyScope}
+                    ready={state.sessionStatus === "ready"}
+                    onRecover={(threadId, checkpointId) => submitInstruction(buildRecoveryInstruction(threadId, checkpointId), "activity")}
+                    reconcileGroup={_group()}
+                    reconcile={state.sessionStatus === "ready" && ["approver", "admin"].includes(state.sessionRole)
+                      ? payload => reconcileQuantCodeReceipt(serverSDK().client, payload) : undefined}
+                    fetcher={(tool, params) => readQuantCodeTool(serverSDK().client, tool, undefined, params)}
+                  />
                 </Match>
                 <Match when={state.view === "factor"}>
                   <FactorFlowView run={_trace()} />
@@ -1176,12 +1243,22 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
                 </Match>
                 <Match when={state.view === "gate"}>
                   <GatePanel role={state.sessionRole} onResume={sendGateDecision} />
+                  <Show when={state.sessionStatus === "ready" && ["approver", "admin"].includes(state.sessionRole)}>
+                    <ApprovalQueue scope={state.historyScope}
+                      fetcher={(cursor) => readQuantCodeTool(serverSDK().client, "list_pending_gates", undefined, { cursor, limit: 20 })}
+                      decide={(threadId, checkpointId, gateId, decision) => submitInstruction(buildResumeInstruction(threadId, decision, gateId, checkpointId), "activity")} />
+                  </Show>
                 </Match>
                 <Match when={state.view === "memory"}>
                   <MemoryQueryView
                     t={language.t as (key: string) => string}
                     fetcher={(query) => searchQuantCodeMemory(serverSDK().client, query)}
                   />
+                  <Show when={state.sessionStatus === "ready" && ["approver", "admin"].includes(state.sessionRole)}>
+                    <KnowledgeReview scope={state.historyScope}
+                      fetcher={() => readQuantCodeTool(serverSDK().client, "list_distill_candidates")}
+                      review={(name, action, digest, replacement) => reviewQuantCodeCandidate(serverSDK().client, name, action, digest, replacement)} />
+                  </Show>
                 </Match>
                 <Match when={state.view === "capabilities"}>
                   <CapabilityCatalogView
@@ -1194,19 +1271,27 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
                   <SolutionPanelView t={language.t as (key: string) => string} run={_trace()} />
                 </Match>
                 <Match when={state.view === "admin" && adminViewable()}>
+                  <DeploymentPanel scope={state.historyScope} client={serverSDK().client} />
                   <AdminConsoleView
                     t={language.t as (key: string) => string}
                     run={_trace()}
                     sendInstruction={(content) => submitInstruction(content, "admin")}
                     onOpenGitgraph={() => setState("view", "gitgraph")}
+                    onOpenHistory={(mode) => setState("adminHistory", mode)}
+                  />
+                  <RunHistoryView
+                    scope={state.historyScope}
+                    ready={adminViewable()}
+                    mode={state.adminHistory}
+                    reconcileGroup={_group()}
+                    reconcile={adminViewable() ? payload => reconcileQuantCodeReceipt(serverSDK().client, payload) : undefined}
+                    fetcher={(tool, params) => readQuantCodeTool(serverSDK().client,
+                      tool === "get_run_history" ? "admin_get_task_history" : state.adminHistory === "reports" ? "admin_report_history" : "admin_task_history",
+                      undefined, params)}
                   />
                 </Match>
                 <Match when={state.view === "gitgraph" && state.sessionStatus === "ready"}>
-                  <GitGraphPanelView
-                    t={language.t as (key: string) => string}
-                    run={_trace()}
-                    sendInstruction={(content) => submitInstruction(content, "gitgraph")}
-                  />
+                  <p class="qc-detail-body">仓库、分支和持久更新通知显示于工作台。</p>
                 </Match>
                 <Match when={state.view === "settings"}>
                   <SettingsPanel
@@ -1223,6 +1308,8 @@ export function QuantCodePanel(props: QuantCodePanelProps = {}): JSX.Element {
                     serverTransport={serverTransport()}
                     sshT={language.t as (key: string) => string}
                     sshConnect={sshConnect()}
+                    sshIdentities={state.sshIdentities}
+                    sshIdentityError={state.sshIdentityError}
                   />
                 </Match>
               </Switch>

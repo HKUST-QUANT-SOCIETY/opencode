@@ -11,10 +11,106 @@ async function mockContext(page: Page, role?: "analyst" | "approver" | "admin", 
       : tool === "list_algorithms" ? { algorithms: [] }
       : tool === "search_memory" ? { status: "EMPTY", hits: [] }
       : tool === "list_capabilities" ? { capabilities: [] }
+      : tool === "get_gitgraph" ? { repos: [], sync_status: "CONNECTED" }
+      : tool === "list_pops" ? { pops: [], next_cursor: null, unread_count: 0 }
+      : tool === "list_distill_candidates" ? { candidates: [] }
+      : tool === "list_pending_gates" ? { gates: [], next_cursor: null }
       : { error: "Unavailable fixture service" }
     await route.fulfill({ json: payload })
   })
 }
+
+test("history remains read-only, pages events and blocks uncertain recovery", async ({ page }) => {
+  await mockContext(page, "analyst")
+  const requested: string[] = []
+  await page.route("**/experimental/quantcode/tool?*", async route => {
+    const query = new URL(route.request().url()).searchParams
+    const tool = query.get("tool")
+    if (tool !== "list_run_history" && tool !== "get_run_history") return route.fallback()
+    requested.push(tool)
+    if (tool === "list_run_history") return route.fulfill({ json: { runs: [{ thread_id: "history-1", checkpoint_id: "cp-2", task: "核对回执测试任务", status: "error" }], next_cursor: null } })
+    const next = query.get("trace_cursor") === "1"
+    await route.fulfill({ json: {
+      thread_id: "history-1", checkpoint_id: "cp-2", group: "factor", task: "核对回执测试任务",
+      read_only: true, can_resume: false, recovery_block_reason: "存在未确认的外部调用",
+      checkpoints: ["cp-2", "cp-1"], messages: [{ type: "ai", content: "保存的结果内容" }],
+      artifacts: ["artifact://saved-report"],
+      unresolved_operations: [{ call_id: "call-1", digest: "a".repeat(64), receipt_status: "STARTED", tool: "write_report" }],
+      timeline: { events: [{ type: "tool_result", data: next ? "第二页事件" : "第一页事件" }], exists: true,
+        next_cursor: next ? 2 : 1, has_more: !next, damaged_lines: next ? 1 : 0 },
+    } })
+  })
+  await page.goto("/")
+  await page.getByRole("button", { name: "执行记录", exact: true }).click()
+  await page.getByRole("button", { name: /核对回执测试任务/ }).click()
+  const detail = page.getByLabel("历史详情", { exact: true })
+  await expect(detail).toContainText("保存的结果内容")
+  await expect(detail).toContainText("artifact://saved-report")
+  await expect(detail).toContainText("无法恢复：存在未确认的外部调用")
+  await expect(detail.getByRole("button", { name: "从最新检查点恢复任务" })).toHaveCount(0)
+  await detail.getByRole("button", { name: "加载更多执行事件" }).click()
+  await expect(detail).toContainText("第一页事件")
+  await expect(detail).toContainText("第二页事件")
+  await expect(detail).toContainText("1 条损坏事件")
+  expect(requested).toEqual(["list_run_history", "get_run_history", "get_run_history"])
+})
+
+test("capability refresh replaces stale state and preserves search focus", async ({ page }) => {
+  await mockContext(page, "analyst")
+  let requests = 0
+  await page.route("**/experimental/quantcode/tool?*", async route => {
+    if (new URL(route.request().url()).searchParams.get("tool") !== "list_capabilities") return route.fallback()
+    requests++
+    await route.fulfill({ json: { capabilities: [{ id: "fixture-component", name: "Catalog component fixture",
+      integration_status: requests === 1 ? "UNVERIFIED" : "UNAVAILABLE", maturity_status: "STAGING",
+      inputs: ["FixtureInput"], outputs: ["FixtureOutput"], depends_on: ["fixture-data"],
+    }] } })
+  })
+  await page.goto("/")
+  await page.getByRole("button", { name: "能力目录", exact: true }).click()
+  const catalog = page.locator(".qc-capability-catalog")
+  await expect(catalog).toContainText("UNVERIFIED")
+  await catalog.getByRole("searchbox").fill("FixtureInput")
+  await expect(catalog.getByRole("searchbox")).toBeFocused()
+  await catalog.getByRole("button", { name: "刷新能力目录" }).click()
+  await expect(catalog).toContainText("UNAVAILABLE")
+  await expect(catalog).not.toContainText("UNVERIFIED")
+  await expect(catalog.getByRole("searchbox")).toHaveValue("FixtureInput")
+  await expect(catalog).toContainText("FixtureOutput")
+})
+
+test("GitGraph pages commits and saves personal Pop acknowledgement", async ({ page }) => {
+  await mockContext(page, "analyst")
+  let pop = { pop_id: "pop-fixture", change_summary: "Fixture branch changed", read_status: "unread", ack_status: "pending", observed_at: "2026-09-05T00:00:00Z" }
+  const updates: unknown[] = []
+  await page.route("**/experimental/quantcode/tool?*", async route => {
+    const tool = new URL(route.request().url()).searchParams.get("tool")
+    if (tool === "list_pops") return route.fulfill({ json: { pops: [pop], unread_count: pop.read_status === "unread" ? 1 : 0, next_cursor: null } })
+    if (tool !== "get_gitgraph") return route.fallback()
+    await route.fulfill({ json: { repos: [{ repo: "fixture/repository", default_branch: "main", observed_at: "2026-09-05", sync_status: "CONNECTED", errors: [],
+      heads: [{ branch: "main", sha: "commit-000", changed: true }], dependency_changes: [],
+      commit_nodes: Array.from({ length: 105 }, (_, i) => ({ sha: `commit-${String(i).padStart(3, "0")}`, message: `Fixture commit ${i}`, parents: i < 104 ? [`commit-${String(i + 1).padStart(3, "0")}`] : [] })),
+    }] } })
+  })
+  await page.route("**/experimental/quantcode/pop", async route => {
+    updates.push(route.request().postDataJSON())
+    pop = { ...pop, read_status: "read", ack_status: "acknowledged" }
+    await route.fulfill({ json: { pop, unread_count: 0 } })
+  })
+  await page.goto("/")
+  await page.getByRole("button", { name: "GitGraph", exact: true }).click()
+  await page.getByText("fixture/repository · 1 个分支 · CONNECTED", { exact: true }).click()
+  const graph = page.getByRole("img", { name: "提交父子关系图，分页显示" })
+  await expect(graph.locator("circle")).toHaveCount(100)
+  await page.getByRole("button", { name: "下一页提交", exact: true }).click()
+  await expect(graph.locator("circle")).toHaveCount(5)
+  await expect(page.getByRole("button", { name: "下一页提交", exact: true })).toBeDisabled()
+  await page.getByRole("button", { name: "确认更新", exact: true }).click()
+  await expect(page.getByRole("button", { name: "已确认", exact: true })).toBeDisabled()
+  expect(updates).toEqual([{ pop_id: "pop-fixture", read: true, ack: true }])
+  await page.getByRole("button", { name: "刷新", exact: true }).click()
+  await expect(page.getByRole("button", { name: "已确认", exact: true })).toBeDisabled()
+})
 
 test("unbound identity cannot submit or claim an SSH connection", async ({ page }) => {
   await mockContext(page)
@@ -84,9 +180,11 @@ for (const viewport of [{ width: 900, height: 650 }, { width: 1440, height: 900 
     await page.locator(".qc-memory-search-input").fill("evaluator")
     await page.locator(".qc-memory-search-input").press("Enter")
     await expect(page.locator(".qc-memory-hit-row")).toHaveCount(30)
-    const panel = await page.locator(".qc-detail-panel").boundingBox()
-    const input = await page.locator(".qc-memory-search-input").boundingBox()
-    expect(input!.x - panel!.x).toBeGreaterThanOrEqual(20)
+    // Measure in one browser frame: the entering panel translates for 220 ms.
+    // Separate boundingBox calls can compare two different animation frames.
+    const inset = await page.locator(".qc-memory-search-input").evaluate(input =>
+      input.getBoundingClientRect().x - input.closest(".qc-detail-panel")!.getBoundingClientRect().x)
+    expect(inset).toBeGreaterThanOrEqual(20)
     expect(await page.locator(".qc-memory-query").evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true)
     await page.locator(".qc-memory-hit-row").last().scrollIntoViewIfNeeded()
     await expect(page.locator(".qc-memory-hit-row").last()).toBeInViewport()

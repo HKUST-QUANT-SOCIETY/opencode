@@ -169,6 +169,22 @@ import type {
   PtyShellsResponses,
   PtyUpdateErrors,
   PtyUpdateResponses,
+  QuantcodeCandidateReviewErrors,
+  QuantcodeCandidateReviewResponses,
+  QuantcodeDeploymentCancelErrors,
+  QuantcodeDeploymentCancelResponses,
+  QuantcodeDeploymentListErrors,
+  QuantcodeDeploymentListResponses,
+  QuantcodeDeploymentSubmitErrors,
+  QuantcodeDeploymentSubmitResponses,
+  QuantcodeIdentityListErrors,
+  QuantcodeIdentityListResponses,
+  QuantcodeIdentityLoginErrors,
+  QuantcodeIdentityLoginResponses,
+  QuantcodePopUpdateErrors,
+  QuantcodePopUpdateResponses,
+  QuantcodeReceiptReconcileErrors,
+  QuantcodeReceiptReconcileResponses,
   QuantcodeToolReadOnlyErrors,
   QuantcodeToolReadOnlyResponses,
   QuestionAnswer,
@@ -1636,7 +1652,26 @@ export class Tool2 extends HeyApiClient {
     parameters: {
       directory?: string
       workspace?: string
-      tool: "search_memory" | "list_capabilities" | "list_skills" | "ssh_status" | "list_algorithms" | "session_context"
+      tool:
+        | "search_memory"
+        | "list_capabilities"
+        | "list_skills"
+        | "ssh_status"
+        | "list_algorithms"
+        | "session_context"
+        | "list_run_history"
+        | "get_run_history"
+        | "get_gitgraph"
+        | "list_pops"
+        | "list_distill_candidates"
+        | "list_pending_gates"
+        | "admin_task_history"
+        | "admin_report_history"
+        | "admin_get_task_history"
+      cursor?: string
+      thread_id?: string
+      checkpoint_id?: string
+      trace_cursor?: string
       group?: string
       query?: string
       limit?: string
@@ -1651,6 +1686,10 @@ export class Tool2 extends HeyApiClient {
             { in: "query", key: "directory" },
             { in: "query", key: "workspace" },
             { in: "query", key: "tool" },
+            { in: "query", key: "cursor" },
+            { in: "query", key: "thread_id" },
+            { in: "query", key: "checkpoint_id" },
+            { in: "query", key: "trace_cursor" },
             { in: "query", key: "group" },
             { in: "query", key: "query" },
             { in: "query", key: "limit" },
@@ -1670,10 +1709,373 @@ export class Tool2 extends HeyApiClient {
   }
 }
 
+export class Pop extends HeyApiClient {
+  /**
+   * Update the authenticated actor's notification receipt
+   */
+  public update<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      pop_id?: string
+      read?: boolean
+      ack?: boolean
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "pop_id" },
+            { in: "body", key: "read" },
+            { in: "body", key: "ack" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<QuantcodePopUpdateResponses, QuantcodePopUpdateErrors, ThrowOnError>({
+      url: "/experimental/quantcode/pop",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
+export class Candidate extends HeyApiClient {
+  /**
+   * Review a knowledge candidate using the authenticated reviewer
+   */
+  public review<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      candidate_name?: string
+      action?: "promote" | "reject" | "supersede" | "revoke"
+      expected_digest?: string
+      superseded_by?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "candidate_name" },
+            { in: "body", key: "action" },
+            { in: "body", key: "expected_digest" },
+            { in: "body", key: "superseded_by" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      QuantcodeCandidateReviewResponses,
+      QuantcodeCandidateReviewErrors,
+      ThrowOnError
+    >({
+      url: "/experimental/quantcode/candidate",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
+export class Deployment extends HeyApiClient {
+  /**
+   * Admin deployment records
+   */
+  public list<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      QuantcodeDeploymentListResponses,
+      QuantcodeDeploymentListErrors,
+      ThrowOnError
+    >({
+      url: "/experimental/quantcode/deployments",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Stage an Admin deployment request
+   */
+  public submit<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      artifact_ref?: string
+      target?: string
+      manifest?: {
+        [key: string]: unknown
+      }
+      request_id?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "artifact_ref" },
+            { in: "body", key: "target" },
+            { in: "body", key: "manifest" },
+            { in: "body", key: "request_id" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      QuantcodeDeploymentSubmitResponses,
+      QuantcodeDeploymentSubmitErrors,
+      ThrowOnError
+    >({
+      url: "/experimental/quantcode/deployments",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Cancel a staged deployment request
+   */
+  public cancel<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      deployment_id?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "deployment_id" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      QuantcodeDeploymentCancelResponses,
+      QuantcodeDeploymentCancelErrors,
+      ThrowOnError
+    >({
+      url: "/experimental/quantcode/deployments/cancel",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
+export class Receipt extends HeyApiClient {
+  /**
+   * Reconcile an uncertain tool outcome with human evidence
+   */
+  public reconcile<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      thread_id?: string
+      checkpoint_id?: string
+      call_id?: string
+      expected_digest?: string
+      decision?: "confirmed_completed" | "confirmed_not_executed"
+      evidence_ref?: string
+      note?: string
+      result?: unknown
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "thread_id" },
+            { in: "body", key: "checkpoint_id" },
+            { in: "body", key: "call_id" },
+            { in: "body", key: "expected_digest" },
+            { in: "body", key: "decision" },
+            { in: "body", key: "evidence_ref" },
+            { in: "body", key: "note" },
+            { in: "body", key: "result" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      QuantcodeReceiptReconcileResponses,
+      QuantcodeReceiptReconcileErrors,
+      ThrowOnError
+    >({
+      url: "/experimental/quantcode/receipts/reconcile",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
+export class Identity extends HeyApiClient {
+  /**
+   * Read the host-configured public SSH identity
+   */
+  public list<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      QuantcodeIdentityListResponses,
+      QuantcodeIdentityListErrors,
+      ThrowOnError
+    >({
+      url: "/experimental/quantcode/identities",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Sign a gateway challenge with the host SSH agent
+   */
+  public login<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      body?: {
+        [key: string]: unknown
+      }
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { key: "body", map: "body" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      QuantcodeIdentityLoginResponses,
+      QuantcodeIdentityLoginErrors,
+      ThrowOnError
+    >({
+      url: "/experimental/quantcode/identity/login",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
 export class Quantcode extends HeyApiClient {
   private _tool?: Tool2
   get tool(): Tool2 {
     return (this._tool ??= new Tool2({ client: this.client }))
+  }
+
+  private _pop?: Pop
+  get pop(): Pop {
+    return (this._pop ??= new Pop({ client: this.client }))
+  }
+
+  private _candidate?: Candidate
+  get candidate(): Candidate {
+    return (this._candidate ??= new Candidate({ client: this.client }))
+  }
+
+  private _deployment?: Deployment
+  get deployment(): Deployment {
+    return (this._deployment ??= new Deployment({ client: this.client }))
+  }
+
+  private _receipt?: Receipt
+  get receipt(): Receipt {
+    return (this._receipt ??= new Receipt({ client: this.client }))
+  }
+
+  private _identity?: Identity
+  get identity(): Identity {
+    return (this._identity ??= new Identity({ client: this.client }))
   }
 }
 

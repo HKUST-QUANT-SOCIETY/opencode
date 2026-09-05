@@ -20,7 +20,7 @@ export default defineConfig({
   retries: process.env.CI ? 2 : 0,
   workers,
   reporter: [["html", { outputFolder: "e2e/playwright-report", open: "never" }], ["line"]],
-  webServer: {
+  webServer: process.env.PLAYWRIGHT_EXTERNAL_SERVER === "1" ? undefined : {
     command,
     url: baseURL,
     reuseExistingServer: reuse,

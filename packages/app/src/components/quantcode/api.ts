@@ -2,6 +2,18 @@ import type { OpencodeClient } from "@opencode-ai/sdk/v2"
 import type { SshConnectFn } from "./ssh-login"
 import type { CapabilityCard } from "./capability-catalog"
 
+export type ReceiptReconciliation = {
+  thread_id: string; checkpoint_id: string; call_id: string; expected_digest: string
+  decision: "confirmed_completed" | "confirmed_not_executed"
+  evidence_ref: string; note: string; result?: unknown
+}
+
+export async function reconcileQuantCodeReceipt(client: OpencodeClient, payload: ReceiptReconciliation): Promise<unknown> {
+  const response = await client.quantcode.receipt.reconcile(payload)
+  if (response.error || !response.data) throw new Error("回执核对提交失败，请确认审核身份和 gateway 连接。")
+  return response.data
+}
+
 export type QuantCodeToolName =
   | "search_memory"
   | "list_capabilities"
@@ -9,6 +21,15 @@ export type QuantCodeToolName =
   | "ssh_status"
   | "list_algorithms"
   | "session_context"
+  | "list_run_history"
+  | "get_run_history"
+  | "get_gitgraph"
+  | "list_pops"
+  | "list_distill_candidates"
+  | "list_pending_gates"
+  | "admin_task_history"
+  | "admin_report_history"
+  | "admin_get_task_history"
 
 export type QuantCodeSkill = {
   id: string
@@ -76,11 +97,15 @@ export async function readQuantCodeTool(
   client: OpencodeClient,
   tool: QuantCodeToolName,
   group?: string,
-  params?: { query?: string; limit?: number },
+  params?: { query?: string; limit?: number; cursor?: string; thread_id?: string; checkpoint_id?: string; trace_cursor?: number },
 ): Promise<unknown> {
   const response = await client.quantcode.tool.readOnly({
     tool,
     ...(group ? { group } : {}),
+    ...(params?.cursor ? { cursor: params.cursor } : {}),
+    ...(params?.thread_id ? { thread_id: params.thread_id } : {}),
+    ...(params?.checkpoint_id ? { checkpoint_id: params.checkpoint_id } : {}),
+    ...(params?.trace_cursor !== undefined ? { trace_cursor: String(params.trace_cursor) } : {}),
     ...(params?.query ? { query: params.query } : {}),
     ...(params?.limit ? { limit: String(params.limit) } : {}),
   })
@@ -155,5 +180,39 @@ export function createSshStatusConnect(client: OpencodeClient): SshConnectFn {
       status: "error",
       reason: "unavailable",
     }
+  }
+}
+
+
+export async function updateQuantCodePop(client: OpencodeClient, pop_id: string, changes: { read?: boolean; ack?: boolean }) {
+  const response = await client.quantcode.pop.update({ pop_id, ...changes })
+  if (response.error || !response.data) throw new Error("通知状态保存失败")
+  if (typeof response.data === "object" && "error" in response.data) throw new Error(String(response.data.error))
+  return response.data
+}
+
+
+export async function reviewQuantCodeCandidate(client: OpencodeClient, candidate_name: string,
+  action: "promote" | "reject" | "supersede" | "revoke", expected_digest?: string, superseded_by?: string) {
+  const response = await client.quantcode.candidate.review({ candidate_name, action, expected_digest, superseded_by })
+  if (response.error || !response.data) throw new Error("知识审核服务不可用")
+  if (typeof response.data !== "object" || !("ok" in response.data) || response.data.ok !== true) {
+    throw new Error(typeof response.data === "object" && "error" in response.data ? String(response.data.error) : "知识审核失败")
+  }
+  return response.data
+}
+
+
+export function createLocalIdentityConnect(client: OpencodeClient, onConnected: () => void): SshConnectFn {
+  return async ({ identityId, log }) => {
+    if (identityId !== "host-default") return { status: "error", reason: "未知本机身份" }
+    log("正在请求 SSH agent 签名并验证正式 roster…")
+    const response = await client.quantcode.identity.login({})
+    const result = response.data
+    if (response.error || !result || typeof result !== "object" || !("status" in result) || result.status !== "connected" || !("fingerprint" in result) || typeof result.fingerprint !== "string") {
+      return { status: "error", reason: "身份认证未完成，请检查本机 SSH agent、gateway 和 roster 配置" }
+    }
+    onConnected()
+    return { status: "connected", fingerprint: result.fingerprint, groups: "groups" in result && Array.isArray(result.groups) ? result.groups : [] }
   }
 }
